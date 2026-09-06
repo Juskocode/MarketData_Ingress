@@ -36,6 +36,7 @@ A production release should require all of the following evidence:
 1. `MD_REQUIRE_TENSORRT=ON` configuration and build pass.
 2. Deterministic CTest suite passes on the GPU runner.
 3. `backend` is `tensorrt-gpu` and `fallback_used` is `false`.
-4. The selected p99 SLO passes over at least 2,000 iterations after 200 warmups.
-5. Model-output accuracy was separately validated against a versioned dataset.
-6. The JSON artifact records the exact engine and environment in release metadata.
+4. `validation.passed` is `true` for the generated identity engine.
+5. The selected p99 SLO passes over at least 2,000 iterations after 200 warmups.
+6. Domain-model output accuracy was separately validated against a versioned dataset.
+7. The JSON artifact records the exact engine and environment in release metadata.

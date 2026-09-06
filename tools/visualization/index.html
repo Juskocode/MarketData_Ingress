@@ -70,6 +70,7 @@
             <div><dt>Inference rate</dt><dd id="throughput">-</dd></div>
             <div><dt>Sample rate</dt><dd id="sampleRate">-</dd></div>
             <div><dt>Fallback</dt><dd id="fallback">-</dd></div>
+            <div><dt>Validation</dt><dd id="validation">-</dd></div>
           </dl>
         </article>
       </section>
@@ -91,7 +92,8 @@
         device_compute: { mean: 0.71, min: 0.64, p50: 0.70, p90: 0.76, p95: 0.79, p99: 0.88, max: 1.12, stddev: 0.04 }
       },
       throughput_ips: 119047.6, throughput_samples_per_second: 119047.6,
-      slo: { scope: 'device_compute', target_us: 1.0, observed_p99_us: 0.88, passed: true }
+      slo: { scope: 'device_compute', target_us: 1.0, observed_p99_us: 0.88, passed: true },
+      validation: { kind: 'identity', tolerance: 0.000001, compared_elements: 512, mismatches: 0, max_abs_error: 0, passed: true }
     };
 
     function number(value, fallback = 0) {
@@ -177,6 +179,15 @@
       document.getElementById('sampleRate').textContent = `${number(data.throughput_samples_per_second || data.throughput_ips).toLocaleString(undefined, { maximumFractionDigits: 0 })} / s`;
       document.getElementById('fallback').textContent = data.fallback_used ? 'USED - evidence invalid' : 'not used';
       document.getElementById('fallback').classList.toggle('danger', Boolean(data.fallback_used));
+      const validation = data.validation;
+      document.getElementById('validation').textContent = validation
+        ? (validation.passed ? `pass (${validation.compared_elements} elements)` : `FAIL (${validation.mismatches} mismatches)`)
+        : 'not requested';
+      document.getElementById('validation').classList.toggle('danger', Boolean(validation && !validation.passed));
+      if (validation && !validation.passed) {
+        document.getElementById('diagnosisTitle').textContent = 'Output correctness failed';
+        document.getElementById('diagnosisText').textContent = `Latency is not deployable evidence: ${validation.mismatches} output elements missed tolerance.`;
+      }
 
       renderBars(data.e2e);
       dashboard.hidden = false;

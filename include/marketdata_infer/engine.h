@@ -31,6 +31,8 @@ struct RunOptions {
   LatencyScope target_scope = LatencyScope::EndToEnd;
   bool allow_mock_fallback = false;
   bool fallback_used = false;
+  bool verify_identity = false;
+  double validation_tolerance = 1e-6;
   std::string requested_backend = "auto";
 };
 
@@ -46,9 +48,17 @@ struct LatencyDistribution {
   double stddev_us = 0.0;
 };
 
+struct OutputValidation {
+  bool passed = false;
+  size_t compared_elements = 0;
+  size_t mismatches = 0;
+  double max_abs_error = 0.0;
+};
+
 struct InferenceStats {
   LatencyDistribution end_to_end;
   std::optional<LatencyDistribution> device_compute;
+  std::optional<OutputValidation> validation;
   double throughput_inferences_per_second = 0.0;
   double throughput_samples_per_second = 0.0;
   size_t input_elements_per_batch = 0;

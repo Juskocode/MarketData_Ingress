@@ -26,6 +26,8 @@ void print_help(const char* exe) {
             << "  --json-out <path>            Write metrics JSON to file\n"
             << "  --target-us <us>             Fail when selected p99 exceeds this value\n"
             << "  --target-scope e2e|device    SLO metric (default: e2e)\n"
+            << "  --verify-identity            Require output to equal deterministic input\n"
+            << "  --tolerance <value>          Identity absolute tolerance (default: 1e-6)\n"
             << "  --help                       Show this help and exit\n";
 }
 size_t parse_size(const std::string& value, const std::string& flag, bool allow_zero) {
@@ -43,6 +45,15 @@ double parse_target(const std::string& value) {
   const double parsed = std::stod(value, &consumed);
   if (consumed != value.size() || !std::isfinite(parsed) || parsed <= 0.0) {
     throw std::runtime_error("--target-us must be a finite value greater than zero");
+  }
+  return parsed;
+}
+
+double parse_tolerance(const std::string& value) {
+  size_t consumed = 0;
+  const double parsed = std::stod(value, &consumed);
+  if (consumed != value.size() || !std::isfinite(parsed) || parsed < 0.0) {
+    throw std::runtime_error("--tolerance must be a finite non-negative value");
   }
   return parsed;
 }
@@ -110,6 +121,10 @@ int main(int argc, char** argv) {
         }
       } else if (arg == "--allow-mock-fallback") {
         options.allow_mock_fallback = true;
+      } else if (arg == "--verify-identity") {
+        options.verify_identity = true;
+      } else if (arg == "--tolerance") {
+        options.validation_tolerance = parse_tolerance(require_value(arg));
       } else {
         throw std::runtime_error("Unknown argument: " + arg);
       }
@@ -170,6 +185,13 @@ int main(int argc, char** argv) {
     }
 
     std::cout << json;
+
+    if (stats.validation && !stats.validation->passed) {
+      std::cerr << "Output validation failed: " << stats.validation->mismatches
+                << " mismatches, max absolute error="
+                << stats.validation->max_abs_error << '\n';
+      return 5;
+    }
 
     if (options.target_latency_us > 0.0) {
       const mdedge::LatencyDistribution* selected = &stats.end_to_end;

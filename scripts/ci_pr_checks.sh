@@ -32,6 +32,14 @@ if "${BIN}" --backend mock --iterations 8 --target-scope device --target-us 1000
   exit 1
 fi
 
+VALIDATION_METRICS="${BUILD_DIR}/marketdata_metrics_invalid_identity.json"
+if "${BIN}" --backend mock --iterations 8 --verify-identity --json-out "${VALIDATION_METRICS}" >/dev/null 2>&1; then
+  echo "Incorrect identity output unexpectedly passed validation" >&2
+  exit 1
+fi
+grep -q '"kind": "identity"' "${VALIDATION_METRICS}"
+grep -q '"mismatches":' "${VALIDATION_METRICS}"
+
 if "${BIN}" --backend tensorrt --model "${MISSING_ENGINE}" --iterations 1 >/dev/null 2>&1; then
   echo "Strict TensorRT policy unexpectedly succeeded with a missing engine" >&2
   exit 1

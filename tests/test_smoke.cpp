@@ -20,6 +20,8 @@ void check(bool condition, const std::string& message) {
 
 class TimedTestEngine final : public mdedge::InferenceEngine {
 public:
+  explicit TimedTestEngine(bool corrupt_output = false) : corrupt_output_(corrupt_output) {}
+
   bool load(const std::string&) override { return true; }
 
   bool infer(const std::vector<float>& input, std::vector<float>& output) override {
@@ -27,6 +29,9 @@ public:
       return false;
     }
     output = input;
+    if (corrupt_output_) {
+      output.front() += 1.0F;
+    }
     device_latency_us_ += 0.05;
     return true;
   }
@@ -38,6 +43,7 @@ public:
   }
 
 private:
+  bool corrupt_output_ = false;
   double device_latency_us_ = 0.1;
 };
 
@@ -51,6 +57,7 @@ int main() {
   options.warmup = 4;
   options.target_latency_us = 1.0;
   options.target_scope = mdedge::LatencyScope::DeviceCompute;
+  options.verify_identity = true;
   options.requested_backend = "test";
   options.model_path = "model\"with\\escapes.engine";
 
@@ -63,13 +70,24 @@ int main() {
   check(stats.device_compute.has_value(), "device timing is captured when backend exposes it");
   check(stats.device_compute && stats.device_compute->samples == options.iterations,
         "device sample count matches iterations");
+  check(stats.validation && stats.validation->passed, "identity output validation passes");
 
   const std::string json = mdedge::format_metrics_json(options, stats);
   check(json.find("\"schema_version\": 2") != std::string::npos, "schema version is exported");
   check(json.find("\"device_compute\": {") != std::string::npos, "device distribution is exported");
+  check(json.find("\"kind\": \"identity\"") != std::string::npos, "validation is exported");
   check(json.find("model\\\"with\\\\escapes.engine") != std::string::npos,
         "JSON strings are escaped");
 
+  TimedTestEngine corrupt_engine(true);
+  check(corrupt_engine.load("corrupt"), "corrupt test engine loads");
+  const auto corrupt_stats = mdedge::run_benchmark(corrupt_engine, options);
+  check(corrupt_stats.validation && !corrupt_stats.validation->passed,
+        "incorrect identity output fails validation");
+  check(corrupt_stats.validation && corrupt_stats.validation->mismatches == 1,
+        "identity validation reports the mismatch count");
+
+  options.verify_identity = false;
   auto mock = mdedge::make_engine(mdedge::BackendHint::Mock, false);
   check(mock != nullptr, "mock factory returns an engine");
   check(mock && mock->load("mock"), "mock engine loads");

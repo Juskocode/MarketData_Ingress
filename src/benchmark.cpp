@@ -148,6 +148,22 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   if (!device_latencies.empty()) {
     stats.device_compute = summarize(std::move(device_latencies));
   }
+  if (opts.verify_identity) {
+    OutputValidation validation;
+    validation.compared_elements = std::min(input.size(), output.size());
+    validation.mismatches = input.size() > output.size()
+        ? input.size() - output.size()
+        : output.size() - input.size();
+    for (size_t i = 0; i < validation.compared_elements; ++i) {
+      const double error = std::abs(static_cast<double>(output[i]) - static_cast<double>(input[i]));
+      validation.max_abs_error = std::max(validation.max_abs_error, error);
+      if (error > opts.validation_tolerance) {
+        ++validation.mismatches;
+      }
+    }
+    validation.passed = validation.mismatches == 0;
+    stats.validation = validation;
+  }
 
   const double total_seconds =
       (stats.end_to_end.mean_us * static_cast<double>(stats.end_to_end.samples)) / 1e6;
@@ -204,6 +220,20 @@ std::string format_metrics_json(const RunOptions& options, const InferenceStats&
       << "  \"stddev_us\": " << stats.end_to_end.stddev_us << ",\n"
       << "  \"throughput_ips\": " << stats.throughput_inferences_per_second << ",\n"
       << "  \"throughput_samples_per_second\": " << stats.throughput_samples_per_second << ",\n"
+      << "  \"validation\": ";
+  if (stats.validation) {
+    out << "{\n"
+        << "    \"kind\": \"identity\",\n"
+        << "    \"tolerance\": " << options.validation_tolerance << ",\n"
+        << "    \"compared_elements\": " << stats.validation->compared_elements << ",\n"
+        << "    \"mismatches\": " << stats.validation->mismatches << ",\n"
+        << "    \"max_abs_error\": " << stats.validation->max_abs_error << ",\n"
+        << "    \"passed\": " << (stats.validation->passed ? "true" : "false") << "\n"
+        << "  }";
+  } else {
+    out << "null";
+  }
+  out << ",\n"
       << "  \"slo\": {\n"
       << "    \"scope\": \"" << scope_name(options.target_scope) << "\",\n"
       << "    \"target_us\": ";
@@ -241,6 +271,10 @@ void print_metrics(const RunOptions& options, const InferenceStats& stats) {
               << stats.device_compute->p99_us << " us\n";
   } else {
     std::cout << "GPU mean / p99   : n/a (backend has no device timer)\n";
+  }
+  if (stats.validation) {
+    std::cout << "Output validation : " << (stats.validation->passed ? "pass" : "FAIL")
+              << " (" << stats.validation->mismatches << " mismatches)\n";
   }
   std::cout << "E2E min / max    : " << e2e.min_us << " / " << e2e.max_us << " us\n"
             << "E2E jitter       : " << e2e.stddev_us << " us\n"

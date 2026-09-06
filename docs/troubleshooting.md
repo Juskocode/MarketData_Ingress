@@ -22,6 +22,10 @@ Capture a baseline with `trtexec`, then use Nsight Systems when the application 
 
 `--target-scope device` was requested on a backend without CUDA-event timing, normally the mock backend. This is an intentional policy failure. Use TensorRT or gate `e2e` for CPU/mock diagnostics.
 
+## Exit code 5: output validation failed
+
+`--verify-identity` found at least one output element outside `--tolerance`, or the output shape differed from the input. Use this gate only with the native identity engine. A failure can indicate incorrect bindings, an engine/runtime incompatibility, memory corruption, or an invalid assumption about the loaded model.
+
 ## Input element mismatch
 
 The runtime requires `input_size * batch` to exactly equal the serialized engine's fixed input volume. Inspect the engine with `trtexec --loadEngine=<path> --dumpLayerInfo` and pass matching CLI values.

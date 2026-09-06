@@ -46,6 +46,14 @@ Metrics schema version 2 separates latency domains that should never be compared
   },
   "throughput_ips": 119047.6,
   "throughput_samples_per_second": 119047.6,
+  "validation": {
+    "kind": "identity",
+    "tolerance": 0.000001,
+    "compared_elements": 512,
+    "mismatches": 0,
+    "max_abs_error": 0.0,
+    "passed": true
+  },
   "slo": {
     "scope": "device_compute",
     "target_us": 1.0,
@@ -64,5 +72,6 @@ The flat `mean_us`, `p99_us`, and related fields remain as end-to-end compatibil
 - Watch standard deviation alongside p99; a low mean with high jitter is not a stable low-latency service.
 - `throughput_ips` counts inference calls. `throughput_samples_per_second` multiplies by batch size.
 - Treat a run with `fallback_used: true` as diagnostic evidence only, never as TensorRT SLO evidence.
+- Require `validation.passed: true` when benchmarking the generated identity engine. Other models need their own domain-specific golden-output validation.
 
 Use at least 200 warmups and 2,000 measured iterations for a hardware claim. Record GPU model, clocks, power mode, TensorRT/CUDA versions, engine hash, and thermal state next to the JSON artifact.
