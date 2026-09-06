@@ -51,6 +51,10 @@ The utility writes one JSON object to standard output. Exit status `0` means the
 candidate is within budget, `1` means a measured regression, `2` means invalid
 input or command-line usage, and `4` means benchmark context mismatch.
 
+The CTest suite includes both comparator unit coverage and an integration test
+that generates a real schema-v2 document with `marketdata_ingress`, compares it,
+and verifies that the mock backend cannot be mistaken for a device-timing run.
+
 ## Comparability guard
 
 By default, both documents must have identical values for:

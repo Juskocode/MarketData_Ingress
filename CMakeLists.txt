@@ -187,4 +187,13 @@ add_test(
   COMMAND marketdata_metrics_compare --self-test
 )
 
+add_test(
+  NAME cli_metrics_regression
+  COMMAND bash
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/metrics_regression_smoke.sh
+          $<TARGET_FILE:marketdata_ingress>
+          $<TARGET_FILE:marketdata_metrics_compare>
+          ${CMAKE_CURRENT_BINARY_DIR}/metrics-regression-smoke
+)
+
 include(CPack)
