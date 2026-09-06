@@ -15,6 +15,11 @@ on:
         description: Device-compute p99 target in microseconds
         required: true
         default: "1.0"
+      use_cuda_graph:
+        description: Capture TensorRT execution as a CUDA graph
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -54,10 +59,15 @@ jobs:
           INPUT_SIZE: ${{ inputs.input_size }}
           TARGET_US: ${{ inputs.target_us }}
           VERIFY_IDENTITY: ${{ steps.model.outputs.verify_identity }}
+          USE_CUDA_GRAPH: ${{ inputs.use_cuda_graph }}
         run: |
           VERIFY_ARGS=()
           if [[ "${VERIFY_IDENTITY}" == "true" ]]; then
             VERIFY_ARGS+=(--verify-identity)
+          fi
+          GRAPH_ARGS=()
+          if [[ "${USE_CUDA_GRAPH}" == "true" ]]; then
+            GRAPH_ARGS+=(--cuda-graph)
           fi
           ./build/bin/marketdata_ingress \
             --backend tensorrt \
@@ -68,6 +78,7 @@ jobs:
             --target-scope device \
             --target-us "${TARGET_US}" \
             "${VERIFY_ARGS[@]}" \
+            "${GRAPH_ARGS[@]}" \
             --json-out build/tensorrt_metrics.json
       - name: Upload GPU evidence
         if: always()

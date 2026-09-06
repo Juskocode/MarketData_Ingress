@@ -34,6 +34,7 @@
         <div><span>MODEL</span><strong id="model">-</strong></div>
         <div><span>SHAPE</span><strong id="shape">-</strong></div>
         <div><span>SAMPLES</span><strong id="samples">-</strong></div>
+        <div><span>EXECUTION</span><strong id="execution">-</strong></div>
       </div>
 
       <section class="metric-grid">
@@ -85,7 +86,7 @@
 
     const demo = {
       schema_version: 2,
-      model: 'tiny-fused.engine', backend: 'tensorrt-gpu', fallback_used: false,
+      model: 'tiny-fused.engine', backend: 'tensorrt-gpu', fallback_used: false, cuda_graph: true,
       samples: 2000, input_size: 512, batch_size: 1,
       latency_us: {
         end_to_end: { mean: 8.4, min: 7.6, p50: 8.1, p90: 9.0, p95: 9.3, p99: 10.2, max: 15.8, stddev: 0.8 },
@@ -134,6 +135,7 @@
       document.getElementById('model').textContent = data.model || 'unnamed';
       document.getElementById('shape').textContent = `${data.input_size || '?'} × ${data.batch_size || 1}`;
       document.getElementById('samples').textContent = data.samples || data.e2e.samples || '-';
+      document.getElementById('execution').textContent = data.cuda_graph ? 'CUDA graph' : 'enqueueV3';
 
       document.getElementById('e2eP99').textContent = formatUs(data.e2e.p99);
       document.getElementById('e2eMean').textContent = `${formatUs(data.e2e.mean)} µs mean`;

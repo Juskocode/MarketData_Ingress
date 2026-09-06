@@ -26,6 +26,10 @@ Capture a baseline with `trtexec`, then use Nsight Systems when the application 
 
 `--verify-identity` found at least one output element outside `--tolerance`, or the output shape differed from the input. Use this gate only with the native identity engine. A failure can indicate incorrect bindings, an engine/runtime incompatibility, memory corruption, or an invalid assumption about the loaded model.
 
+## Exit code 6: CUDA graph unavailable
+
+Graph capture was requested on a non-GPU backend or TensorRT/CUDA rejected the capture. Loops, conditionals, data-dependent shapes, synchronous plugins, and changing context state can prevent capture. Retry without `--cuda-graph`, then compare against `trtexec --useCudaGraph` and inspect the capture error before deciding whether ordinary `enqueueV3` is acceptable.
+
 ## Input element mismatch
 
 The runtime requires `input_size * batch` to exactly equal the serialized engine's fixed input volume. Inspect the engine with `trtexec --loadEngine=<path> --dumpLayerInfo` and pass matching CLI values.

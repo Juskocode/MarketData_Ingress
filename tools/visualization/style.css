@@ -114,7 +114,7 @@ button {
 
 .run-strip {
   display: grid;
-  grid-template-columns: 1fr 2fr 1fr 1fr;
+  grid-template-columns: 1fr 2fr 1fr 1fr 1fr;
   border: 1px solid var(--ink);
   background: var(--ink);
   gap: 1px;

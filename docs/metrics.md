@@ -17,6 +17,7 @@ Metrics schema version 2 separates latency domains that should never be compared
   "backend": "tensorrt-gpu",
   "requested_backend": "tensorrt",
   "fallback_used": false,
+  "cuda_graph": true,
   "samples": 2000,
   "input_size": 512,
   "batch_size": 1,
@@ -72,6 +73,7 @@ The flat `mean_us`, `p99_us`, and related fields remain as end-to-end compatibil
 - Watch standard deviation alongside p99; a low mean with high jitter is not a stable low-latency service.
 - `throughput_ips` counts inference calls. `throughput_samples_per_second` multiplies by batch size.
 - Treat a run with `fallback_used: true` as diagnostic evidence only, never as TensorRT SLO evidence.
+- Compare otherwise identical runs with `cuda_graph` false and true to quantify enqueue-bound overhead.
 - Require `validation.passed: true` when benchmarking the generated identity engine. Other models need their own domain-specific golden-output validation.
 
 Use at least 200 warmups and 2,000 measured iterations for a hardware claim. Record GPU model, clocks, power mode, TensorRT/CUDA versions, engine hash, and thermal state next to the JSON artifact.

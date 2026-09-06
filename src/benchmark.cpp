@@ -176,6 +176,7 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   }
   stats.input_elements_per_batch = total_input;
   stats.backend = engine.backend_name();
+  stats.cuda_graph = engine.cuda_graph_enabled();
   return stats;
 }
 
@@ -197,6 +198,7 @@ std::string format_metrics_json(const RunOptions& options, const InferenceStats&
       << "  \"backend\": \"" << escape_json(stats.backend) << "\",\n"
       << "  \"requested_backend\": \"" << escape_json(options.requested_backend) << "\",\n"
       << "  \"fallback_used\": " << (options.fallback_used ? "true" : "false") << ",\n"
+      << "  \"cuda_graph\": " << (stats.cuda_graph ? "true" : "false") << ",\n"
       << "  \"samples\": " << stats.end_to_end.samples << ",\n"
       << "  \"input_size\": " << options.input_size << ",\n"
       << "  \"batch_size\": " << options.batch_size << ",\n"
@@ -264,6 +266,7 @@ void print_metrics(const RunOptions& options, const InferenceStats& stats) {
   std::cout << "\n============================================================\n"
             << "Backend          : " << stats.backend << '\n'
             << "Measured samples : " << e2e.samples << '\n'
+            << "CUDA graph       : " << (stats.cuda_graph ? "enabled" : "disabled") << '\n'
             << std::fixed << std::setprecision(3)
             << "E2E mean / p99   : " << e2e.mean_us << " / " << e2e.p99_us << " us\n";
   if (stats.device_compute) {

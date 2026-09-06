@@ -28,6 +28,7 @@ void print_help(const char* exe) {
             << "  --target-scope e2e|device    SLO metric (default: e2e)\n"
             << "  --verify-identity            Require output to equal deterministic input\n"
             << "  --tolerance <value>          Identity absolute tolerance (default: 1e-6)\n"
+            << "  --cuda-graph                 Capture and replay TensorRT enqueue as a CUDA graph\n"
             << "  --help                       Show this help and exit\n";
 }
 size_t parse_size(const std::string& value, const std::string& flag, bool allow_zero) {
@@ -125,6 +126,8 @@ int main(int argc, char** argv) {
         options.verify_identity = true;
       } else if (arg == "--tolerance") {
         options.validation_tolerance = parse_tolerance(require_value(arg));
+      } else if (arg == "--cuda-graph") {
+        options.use_cuda_graph = true;
       } else {
         throw std::runtime_error("Unknown argument: " + arg);
       }
@@ -165,6 +168,11 @@ int main(int argc, char** argv) {
         std::cerr << "Backend failed to load model: " << options.model_path << '\n';
         return 2;
       }
+    }
+
+    if (options.use_cuda_graph && !engine->enable_cuda_graph()) {
+      std::cerr << "CUDA graph mode was requested but is unavailable for this backend or engine\n";
+      return 6;
     }
 
     const auto stats = mdedge::run_benchmark(*engine, options);

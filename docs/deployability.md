@@ -37,6 +37,7 @@ A production release should require all of the following evidence:
 2. Deterministic CTest suite passes on the GPU runner.
 3. `backend` is `tensorrt-gpu` and `fallback_used` is `false`.
 4. `validation.passed` is `true` for the generated identity engine.
-5. The selected p99 SLO passes over at least 2,000 iterations after 200 warmups.
-6. Domain-model output accuracy was separately validated against a versioned dataset.
-7. The JSON artifact records the exact engine and environment in release metadata.
+5. `cuda_graph` matches the requested execution policy; capture requests must not silently downgrade.
+6. The selected p99 SLO passes over at least 2,000 iterations after 200 warmups.
+7. Domain-model output accuracy was separately validated against a versioned dataset.
+8. The JSON artifact records the exact engine and environment in release metadata.

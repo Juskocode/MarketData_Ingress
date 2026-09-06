@@ -57,6 +57,7 @@ The TensorRT build also produces a native engine generator. It creates a minimal
   --warmup 200 \
   --iterations 2000 \
   --verify-identity \
+  --cuda-graph \
   --target-scope device \
   --target-us 1.0 \
   --json-out metrics.json
@@ -65,6 +66,8 @@ The TensorRT build also produces a native engine generator. It creates a minimal
 Use `--target-scope device` to gate TensorRT kernel execution measured with CUDA events. Use `--target-scope e2e` to gate the full C++ call, including host copies, CUDA transfers, synchronization, and result materialization.
 
 `--verify-identity` is intended for the native identity engine. It compares every output element with the deterministic input in C++, writes the mismatch count and maximum absolute error to JSON, and exits with code 5 on failure. Do not use that flag for a non-identity model.
+
+`--cuda-graph` primes the fixed-shape context, captures `enqueueV3`, and replays the captured graph for each inference. Capture failure exits with code 6. Compare runs with and without this option; it primarily helps when host enqueue overhead dominates small kernels.
 
 The runner intentionally supports one fixed-shape FP32 input and one fixed-shape FP32 output. This keeps the latency contract unambiguous. Build separate serialized engines for different shapes.
 

@@ -41,9 +41,15 @@ public:
   std::optional<double> last_device_latency_us() const override {
     return device_latency_us_;
   }
+  bool enable_cuda_graph() override {
+    cuda_graph_ = true;
+    return true;
+  }
+  bool cuda_graph_enabled() const override { return cuda_graph_; }
 
 private:
   bool corrupt_output_ = false;
+  bool cuda_graph_ = false;
   double device_latency_us_ = 0.1;
 };
 
@@ -63,6 +69,7 @@ int main() {
 
   TimedTestEngine timed_engine;
   check(timed_engine.load(options.model_path), "timed test engine loads");
+  check(timed_engine.enable_cuda_graph(), "test engine enables CUDA graph mode");
   const auto stats = mdedge::run_benchmark(timed_engine, options);
   check(stats.end_to_end.samples == options.iterations, "E2E sample count matches iterations");
   check(stats.end_to_end.mean_us >= 0.0, "E2E mean is non-negative");
@@ -71,11 +78,13 @@ int main() {
   check(stats.device_compute && stats.device_compute->samples == options.iterations,
         "device sample count matches iterations");
   check(stats.validation && stats.validation->passed, "identity output validation passes");
+  check(stats.cuda_graph, "execution mode is exported from the engine");
 
   const std::string json = mdedge::format_metrics_json(options, stats);
   check(json.find("\"schema_version\": 2") != std::string::npos, "schema version is exported");
   check(json.find("\"device_compute\": {") != std::string::npos, "device distribution is exported");
   check(json.find("\"kind\": \"identity\"") != std::string::npos, "validation is exported");
+  check(json.find("\"cuda_graph\": true") != std::string::npos, "CUDA graph mode is exported");
   check(json.find("model\\\"with\\\\escapes.engine") != std::string::npos,
         "JSON strings are escaped");
 

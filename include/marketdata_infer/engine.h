@@ -32,6 +32,7 @@ struct RunOptions {
   bool allow_mock_fallback = false;
   bool fallback_used = false;
   bool verify_identity = false;
+  bool use_cuda_graph = false;
   double validation_tolerance = 1e-6;
   std::string requested_backend = "auto";
 };
@@ -59,6 +60,7 @@ struct InferenceStats {
   LatencyDistribution end_to_end;
   std::optional<LatencyDistribution> device_compute;
   std::optional<OutputValidation> validation;
+  bool cuda_graph = false;
   double throughput_inferences_per_second = 0.0;
   double throughput_samples_per_second = 0.0;
   size_t input_elements_per_batch = 0;
@@ -75,6 +77,12 @@ public:
 
   virtual std::optional<double> last_device_latency_us() const {
     return std::nullopt;
+  }
+  virtual bool enable_cuda_graph() {
+    return false;
+  }
+  virtual bool cuda_graph_enabled() const {
+    return false;
   }
 };
 

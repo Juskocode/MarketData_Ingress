@@ -75,6 +75,10 @@ void TensorRTInferenceEngine::destroyResources() {
     cudaEventDestroy(device_stop_);
     device_stop_ = nullptr;
   }
+  if (graph_execution_) {
+    cudaGraphExecDestroy(graph_execution_);
+    graph_execution_ = nullptr;
+  }
   if (stream_) {
     cudaStreamDestroy(stream_);
     stream_ = nullptr;
@@ -293,9 +297,13 @@ bool TensorRTInferenceEngine::infer(
       !cuda_ok(cudaEventRecord(device_start_, stream_), "cudaEventRecord(start)")) {
     return false;
   }
-  if (!context_->enqueueV3(stream_)) {
-    std::cerr << "TensorRT enqueueV3 failed\n";
-    return false;
+  if (graph_execution_) {
+    if (!cuda_ok(cudaGraphLaunch(graph_execution_, stream_), "cudaGraphLaunch")) {
+      return false;
+    }
+  } else if (!context_->enqueueV3(stream_)) {
+      std::cerr << "TensorRT enqueueV3 failed\n";
+      return false;
   }
   if (!cuda_ok(cudaEventRecord(device_stop_, stream_), "cudaEventRecord(stop)") ||
       !cuda_ok(cudaMemcpyAsync(
@@ -326,6 +334,54 @@ const char* TensorRTInferenceEngine::backend_name() const {
 
 std::optional<double> TensorRTInferenceEngine::last_device_latency_us() const {
   return last_device_latency_us_;
+}
+
+bool TensorRTInferenceEngine::enable_cuda_graph() {
+  if (graph_execution_) {
+    return true;
+  }
+  if (!context_ || !stream_) {
+    return false;
+  }
+
+  if (!context_->enqueueV3(stream_) ||
+      !cuda_ok(cudaStreamSynchronize(stream_), "CUDA graph priming synchronization")) {
+    std::cerr << "Could not prime TensorRT context for CUDA graph capture\n";
+    return false;
+  }
+
+  if (!cuda_ok(
+          cudaStreamBeginCapture(stream_, cudaStreamCaptureModeGlobal),
+          "cudaStreamBeginCapture")) {
+    return false;
+  }
+  const bool enqueue_succeeded = context_->enqueueV3(stream_);
+  cudaGraph_t captured_graph = nullptr;
+  const cudaError_t capture_status = cudaStreamEndCapture(stream_, &captured_graph);
+  if (!enqueue_succeeded || capture_status != cudaSuccess || !captured_graph) {
+    if (captured_graph) {
+      cudaGraphDestroy(captured_graph);
+    }
+    std::cerr << "CUDA graph capture is unsupported for this engine";
+    if (capture_status != cudaSuccess) {
+      std::cerr << ": " << cudaGetErrorString(capture_status);
+    }
+    std::cerr << '\n';
+    return false;
+  }
+
+  const cudaError_t instantiate_status = cudaGraphInstantiate(
+      &graph_execution_, captured_graph, nullptr, nullptr, 0);
+  cudaGraphDestroy(captured_graph);
+  if (!cuda_ok(instantiate_status, "cudaGraphInstantiate")) {
+    graph_execution_ = nullptr;
+    return false;
+  }
+  return true;
+}
+
+bool TensorRTInferenceEngine::cuda_graph_enabled() const {
+  return graph_execution_ != nullptr;
 }
 
 } // namespace mdedge

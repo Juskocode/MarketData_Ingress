@@ -25,6 +25,8 @@ public:
   size_t input_elements_per_batch() const override;
   const char* backend_name() const override;
   std::optional<double> last_device_latency_us() const override;
+  bool enable_cuda_graph() override;
+  bool cuda_graph_enabled() const override;
 
 private:
   bool loadSerializedEngine(const std::string& model_path);
@@ -53,6 +55,7 @@ private:
   cudaStream_t stream_ = nullptr;
   cudaEvent_t device_start_ = nullptr;
   cudaEvent_t device_stop_ = nullptr;
+  cudaGraphExec_t graph_execution_ = nullptr;
   std::optional<double> last_device_latency_us_;
 };
 
