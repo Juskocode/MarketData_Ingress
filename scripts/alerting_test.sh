@@ -11,6 +11,7 @@ TEST_FILE="${ROOT_DIR}/deploy/monitoring/prometheus/tests/marketdata_rules.test.
 ALERTMANAGER_CONFIG="${ROOT_DIR}/deploy/monitoring/alertmanager/alertmanager.yml"
 mkdir -p "${ROOT_DIR}/work"
 TMP_DIR="$(mktemp -d "${ROOT_DIR}/work/alerting-test.XXXXXX")"
+chmod 0755 "${TMP_DIR}"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -63,6 +64,7 @@ ruby -ryaml -e '
 ' "${RULES_FILE}" "${TMP_DIR}/marketdata-rules.normalized.yml"
 
 cp "${TEST_FILE}" "${TMP_DIR}/marketdata_rules.test.yml"
+chmod 0644 "${TMP_DIR}/marketdata-rules.normalized.yml" "${TMP_DIR}/marketdata_rules.test.yml"
 docker run --rm \
   -v "${TMP_DIR}:/work:ro" \
   --entrypoint /bin/promtool \
