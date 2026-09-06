@@ -1,0 +1,43 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build g++
+      - name: Verify tag matches project version
+        run: ./scripts/check_release_tag.sh "${GITHUB_REF_NAME}"
+      - name: Configure portable mock package
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMD_WITH_TENSORRT=OFF
+          -DMD_BUILD_TESTS=ON
+      - name: Build and test
+        run: |
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+          ./scripts/deployability.sh build
+      - name: Write package checksums
+        working-directory: build
+        run: sha256sum marketdata-ingress-*.tar.gz > SHA256SUMS
+      - name: Publish immutable GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          build/marketdata-ingress-*.tar.gz
+          build/SHA256SUMS
+          --verify-tag
+          --generate-notes
+          --title "MarketData Ingress ${GITHUB_REF_NAME}"

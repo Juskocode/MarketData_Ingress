@@ -90,6 +90,8 @@ Every push and pull request runs GCC Release, GCC Debug with ASan/UBSan, Clang R
 
 The manual `TensorRT GPU Validation` workflow targets a self-hosted runner labeled `gpu` and `tensorrt`. It requires TensorRT at configure time, generates the native identity engine if its requested model path is absent, and uploads the measured JSON as evidence.
 
+`cmake --build build --target package` creates a versioned `.tar.gz` containing the installed binary, documentation, and dashboard. A pushed `vMAJOR.MINOR.PATCH` tag triggers the release workflow only when it exactly matches the CMake project version; the workflow reruns deployability checks and publishes the package plus `SHA256SUMS` as immutable GitHub Release assets. GPU workflow packages are separate artifacts because TensorRT binaries depend on their deployment runtime.
+
 ## Documentation
 
 - `docs/metrics.md`: schema, timing boundaries, SLO interpretation.

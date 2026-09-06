@@ -15,7 +15,7 @@ ctest --test-dir build --output-on-failure
 ./scripts/ci_pr_checks.sh build
 ```
 
-The deployability script validates CLI help, schema-v2 metrics, strict TensorRT failure, explicitly permitted fallback metadata, CMake installation, and execution of the staged binary.
+The deployability script validates CLI help, schema-v2 metrics, strict TensorRT failure, explicitly permitted fallback metadata, CMake installation, execution of the staged binary, CPack archive creation, and the required binary/dashboard archive contents.
 
 The PR script runs five input volumes and verifies malformed-input rejection, threshold failure, unavailable device-scope rejection, and strict backend policy.
 
@@ -26,6 +26,12 @@ The PR script runs five input volumes and verifies malformed-input rejection, th
 - Clang Release catches compiler-specific warnings and portability regressions.
 - Source policy rejects Python embedding in C++ headers and sources.
 - JSON benchmark evidence is uploaded from the release job.
+
+## Tagged release delivery
+
+A tag matching the exact project version, for example `v0.2.0`, triggers `.github/workflows/release.yml`. It rebuilds the deterministic Linux package, reruns CTest and deployability, creates `SHA256SUMS`, and publishes both files to a GitHub Release. A mismatched version tag fails before packaging.
+
+The general release package uses the portable mock backend so it can run on ordinary hosts. The manually validated GPU workflow creates a separate TensorRT-linked package after device correctness and latency gates pass; deploy that package only with a compatible CUDA/TensorRT runtime.
 
 ## GPU release gate
 

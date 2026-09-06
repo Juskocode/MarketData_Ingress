@@ -48,6 +48,23 @@ grep -q '"backend": "mock-cpp-cpu"' "${FALLBACK_METRICS}"
 cmake --install "${BUILD_DIR}" --prefix "${STAGE_DIR}"
 "${STAGE_DIR}/bin/marketdata_ingress" --help >/dev/null
 
+cmake --build "${BUILD_DIR}" --target package >/dev/null
+shopt -s nullglob
+PACKAGES=("${BUILD_DIR}"/marketdata-ingress-*.tar.gz)
+if [[ ${#PACKAGES[@]} -ne 1 ]]; then
+  echo "Expected exactly one release package, found ${#PACKAGES[@]}" >&2
+  exit 1
+fi
+if ! tar -tzf "${PACKAGES[0]}" | grep 'bin/marketdata_ingress' >/dev/null; then
+  echo "Release package does not contain the native executable" >&2
+  exit 1
+fi
+if ! tar -tzf "${PACKAGES[0]}" | grep 'dashboard/index.html' >/dev/null; then
+  echo "Release package does not contain the metrics dashboard" >&2
+  exit 1
+fi
+
 echo "[deployability] pass"
 echo "metrics: ${METRICS}"
 echo "staged binary: ${STAGE_DIR}/bin/marketdata_ingress"
+echo "package: ${PACKAGES[0]}"

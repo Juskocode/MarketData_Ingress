@@ -87,3 +87,13 @@ jobs:
           name: tensorrt-gpu-metrics
           path: build/tensorrt_metrics.json
           if-no-files-found: warn
+      - name: Package validated GPU binaries
+        if: success()
+        run: cmake --build build --target package
+      - name: Upload validated GPU package
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tensorrt-gpu-package
+          path: build/marketdata-ingress-*.tar.gz
+          if-no-files-found: error
