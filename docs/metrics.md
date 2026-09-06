@@ -1,39 +1,68 @@
-# Metrics and Benchmarks
+# Metrics and latency contract
 
-The benchmark exports a compact JSON schema that is easy to scrape in CI.
+Metrics schema version 2 separates latency domains that should never be compared as if they were the same measurement.
+
+## Timing boundaries
+
+`latency_us.end_to_end` is measured by `std::chrono::steady_clock` around the complete `infer` call. For TensorRT that includes copying the caller's vector into pinned memory, H2D transfer, enqueue, GPU work, D2H transfer, stream synchronization, and copying the result into the caller's vector.
+
+`latency_us.device_compute` is measured by CUDA events immediately before and after `enqueueV3` on the same non-blocking stream. H2D and D2H transfers are outside the event interval. The field is `null` for the mock backend.
+
+## JSON schema
 
 ```json
 {
-  "model": "model.engine",
+  "schema_version": 2,
+  "model": "models/tiny.engine",
   "backend": "tensorrt-gpu",
-  "samples": 200,
+  "requested_backend": "tensorrt",
+  "fallback_used": false,
+  "samples": 2000,
   "input_size": 512,
   "batch_size": 1,
-  "mean_us": 12.34,
-  "min_us": 3.1,
-  "p50_us": 10.9,
-  "p90_us": 13.4,
-  "p95_us": 15.1,
-  "p99_us": 17.8,
-  "max_us": 25.0,
-  "stddev_us": 4.2,
-  "throughput_ips": 5400
+  "latency_us": {
+    "end_to_end": {
+      "samples": 2000,
+      "mean": 8.4,
+      "min": 7.6,
+      "p50": 8.1,
+      "p90": 9.0,
+      "p95": 9.3,
+      "p99": 10.2,
+      "max": 15.8,
+      "stddev": 0.8
+    },
+    "device_compute": {
+      "samples": 2000,
+      "mean": 0.71,
+      "min": 0.64,
+      "p50": 0.70,
+      "p90": 0.76,
+      "p95": 0.79,
+      "p99": 0.88,
+      "max": 1.12,
+      "stddev": 0.04
+    }
+  },
+  "throughput_ips": 119047.6,
+  "throughput_samples_per_second": 119047.6,
+  "slo": {
+    "scope": "device_compute",
+    "target_us": 1.0,
+    "observed_p99_us": 0.88,
+    "passed": true
+  }
 }
 ```
 
-## Contract checks in CI
+The flat `mean_us`, `p99_us`, and related fields remain as end-to-end compatibility aliases for simple collectors.
 
-- `p99_us` must be present in every JSON file.
-- For PR checks, we enforce synthetic tests that do not regress CLI behavior.
-- `--target-us` (optional) can be used locally and in CI to enforce an SLO.
+## Interpretation
 
-## Visual diagnostics
+- Compare p50 to p99 to understand tail amplification.
+- Compare end-to-end p99 to device p99 to expose transfer, launch, synchronization, and host-copy overhead.
+- Watch standard deviation alongside p99; a low mean with high jitter is not a stable low-latency service.
+- `throughput_ips` counts inference calls. `throughput_samples_per_second` multiplies by batch size.
+- Treat a run with `fallback_used: true` as diagnostic evidence only, never as TensorRT SLO evidence.
 
-Open `tools/visualization/index.html`, load any `--json-out` file and use the cards/bars to review latency shape.
-
-## Recommended interpretation
-
-- `p50_us`: central tendency for inference latency.
-- `p95_us`/`p99_us`: tail latency; tune kernels and input pipeline if these drift.
-- `throughput_ips`: stable if close to expected hardware throughput.
-- `stddev_us`: jitter; high values often indicate contention or non-deterministic batching.
+Use at least 200 warmups and 2,000 measured iterations for a hardware claim. Record GPU model, clocks, power mode, TensorRT/CUDA versions, engine hash, and thermal state next to the JSON artifact.

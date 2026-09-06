@@ -3,136 +3,209 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MarketData Ingress Metrics</title>
+  <title>Edge Pulse | TensorRT telemetry</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
-    <header>
-      <h1>MarketData Ingress · Inference Metrics</h1>
-      <p>Drop a metrics JSON file and get instant latency and throughput diagnostics.</p>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">MARKETDATA / EDGE PULSE</p>
+        <h1>Latency, without the hand-waving.</h1>
+        <p class="lede">Separate the full request path from the time actually spent executing on the GPU.</p>
+      </div>
+      <div class="live-mark"><span></span> metrics console</div>
     </header>
 
-    <section class="panel controls">
-      <input id="fileInput" type="file" accept="application/json" />
-      <p class="hint">Load output from: <code>--json-out</code> in benchmark run.</p>
-    </section>
-
-    <section class="grid" id="cards" hidden>
-      <article class="card">
-        <h2>Backend</h2>
-        <p id="backend">-</p>
-      </article>
-      <article class="card">
-        <h2>Mean (µs)</h2>
-        <p id="mean">-</p>
-      </article>
-      <article class="card">
-        <h2>p99 (µs)</h2>
-        <p id="p99">-</p>
-      </article>
-      <article class="card">
-        <h2>Throughput</h2>
-        <p id="throughput">-</p>
-      </article>
-      <article class="card">
-        <h2>Samples</h2>
-        <p id="samples">-</p>
-      </article>
-      <article class="card">
-        <h2>Input size / batch</h2>
-        <p id="shape">-</p>
-      </article>
-    </section>
-
-    <section class="panel" id="chart" hidden>
-      <h2>Latency distribution</h2>
-      <div class="bars">
-        <div class="bar-row">
-          <span>p50</span><div class="meter"><i id="bar50"></i></div><strong id="p50">-</strong>
-        </div>
-        <div class="bar-row">
-          <span>p90</span><div class="meter"><i id="bar90"></i></div><strong id="p90">-</strong>
-        </div>
-        <div class="bar-row">
-          <span>p95</span><div class="meter"><i id="bar95"></i></div><strong id="p95">-</strong>
-        </div>
-        <div class="bar-row">
-          <span>max</span><div class="meter"><i id="barMax"></i></div><strong id="max">-</strong>
-        </div>
+    <section class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Load metrics JSON">
+      <input id="fileInput" type="file" accept="application/json,.json" />
+      <div class="drop-copy">
+        <span class="drop-icon">JSON</span>
+        <div><strong>Drop benchmark evidence here</strong><small>or click to choose a schema-v2 metrics file</small></div>
       </div>
+      <button id="demoButton" type="button">Load demo</button>
     </section>
 
-    <section class="panel" id="tips" hidden>
-      <h2>Troubleshooting hints</h2>
-      <ul>
-        <li>When p99 rises: inspect thermal state, clock throttling, and power limits.</li>
-        <li>If mock backend is unexpectedly active, confirm TensorRT runtime + model path.</li>
-        <li>For jitter, increase input batching or disable noisy background jobs.</li>
-        <li>Compare warmup and steady-state values; warmup-only spikes are expected.</li>
-      </ul>
+    <p class="error" id="error" hidden></p>
+
+    <section class="dashboard" id="dashboard" hidden>
+      <div class="run-strip">
+        <div><span>BACKEND</span><strong id="backend">-</strong></div>
+        <div><span>MODEL</span><strong id="model">-</strong></div>
+        <div><span>SHAPE</span><strong id="shape">-</strong></div>
+        <div><span>SAMPLES</span><strong id="samples">-</strong></div>
+      </div>
+
+      <section class="metric-grid">
+        <article class="latency-card e2e-card">
+          <p class="card-kicker">FULL REQUEST PATH</p>
+          <div class="headline"><strong id="e2eP99">-</strong><span>µs p99</span></div>
+          <p id="e2eMean">- µs mean</p>
+          <div class="range"><span id="e2eMin">- min</span><span id="e2eMax">- max</span></div>
+        </article>
+
+        <article class="latency-card gpu-card">
+          <p class="card-kicker">GPU COMPUTE</p>
+          <div class="headline"><strong id="gpuP99">-</strong><span>µs p99</span></div>
+          <p id="gpuMean">CUDA timing unavailable</p>
+          <div class="range"><span id="gpuMin">- min</span><span id="gpuMax">- max</span></div>
+        </article>
+
+        <article class="slo-card">
+          <div class="gauge" id="gauge"><div><strong id="sloValue">-</strong><span>SLO</span></div></div>
+          <div><p class="card-kicker">SELECTED POLICY</p><h2 id="sloStatus">No target</h2><p id="sloDetail">Run with --target-us to emit a gate.</p></div>
+        </article>
+      </section>
+
+      <section class="lower-grid">
+        <article class="panel quantiles">
+          <div class="panel-heading"><div><p class="card-kicker">TAIL SHAPE</p><h2>End-to-end quantiles</h2></div><span id="jitter">- jitter</span></div>
+          <div id="bars"></div>
+        </article>
+        <article class="panel diagnosis">
+          <p class="card-kicker">AUTOMATED READ</p>
+          <h2 id="diagnosisTitle">Waiting for evidence</h2>
+          <p id="diagnosisText">Load a metrics file to classify the dominant latency boundary.</p>
+          <dl>
+            <div><dt>Inference rate</dt><dd id="throughput">-</dd></div>
+            <div><dt>Sample rate</dt><dd id="sampleRate">-</dd></div>
+            <div><dt>Fallback</dt><dd id="fallback">-</dd></div>
+          </dl>
+        </article>
+      </section>
     </section>
-  </div>
+  </main>
 
   <script>
     const fileInput = document.getElementById('fileInput');
-    const cards = document.getElementById('cards');
-    const chart = document.getElementById('chart');
-    const tips = document.getElementById('tips');
+    const dropZone = document.getElementById('dropZone');
+    const dashboard = document.getElementById('dashboard');
+    const errorBox = document.getElementById('error');
 
-    function setBar(id, value, scale) {
-      const el = document.getElementById(id);
-      const width = Math.min(100, Math.max(5, value / scale * 100));
-      el.style.width = `${width}%`;
+    const demo = {
+      schema_version: 2,
+      model: 'tiny-fused.engine', backend: 'tensorrt-gpu', fallback_used: false,
+      samples: 2000, input_size: 512, batch_size: 1,
+      latency_us: {
+        end_to_end: { mean: 8.4, min: 7.6, p50: 8.1, p90: 9.0, p95: 9.3, p99: 10.2, max: 15.8, stddev: 0.8 },
+        device_compute: { mean: 0.71, min: 0.64, p50: 0.70, p90: 0.76, p95: 0.79, p99: 0.88, max: 1.12, stddev: 0.04 }
+      },
+      throughput_ips: 119047.6, throughput_samples_per_second: 119047.6,
+      slo: { scope: 'device_compute', target_us: 1.0, observed_p99_us: 0.88, passed: true }
+    };
+
+    function number(value, fallback = 0) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
     }
 
-    fileInput.addEventListener('change', async (event) => {
-      const file = event.target.files[0];
-      if (!file) {
-        return;
+    function normalize(data) {
+      const legacy = {
+        samples: number(data.samples), mean: number(data.mean_us), min: number(data.min_us),
+        p50: number(data.p50_us), p90: number(data.p90_us), p95: number(data.p95_us),
+        p99: number(data.p99_us), max: number(data.max_us), stddev: number(data.stddev_us)
+      };
+      const e2e = data.latency_us?.end_to_end || legacy;
+      if (!data.backend || !e2e || !Number.isFinite(Number(e2e.p99))) {
+        throw new Error('The file does not contain a recognizable latency metrics payload.');
       }
-      const text = await file.text();
-      const data = JSON.parse(text);
+      return { ...data, e2e, gpu: data.latency_us?.device_compute || null };
+    }
 
-      const mean = Number(data.mean_us || 0);
-      const p50 = Number(data.p50_us || 0);
-      const p90 = Number(data.p90_us || 0);
-      const p95 = Number(data.p95_us || 0);
-      const p99 = Number(data.p99_us || 0);
-      const max = Number(data.max_us || 0);
+    function formatUs(value) {
+      const n = number(value);
+      return n < 1 ? n.toFixed(3) : n.toFixed(2);
+    }
 
-      document.getElementById('backend').textContent = data.backend || 'n/a';
-      document.getElementById('mean').textContent = mean.toFixed(3);
-      document.getElementById('p99').textContent = p99.toFixed(3);
-      document.getElementById('throughput').textContent = `${Number(data.throughput_ips || 0).toFixed(1)} / s`;
-      document.getElementById('samples').textContent = `${data.samples || 0}`;
-      document.getElementById('shape').textContent = `${data.input_size || 0} × batch ${data.batch_size || 1}`;
+    function renderBars(metrics) {
+      const values = [['p50', metrics.p50], ['p90', metrics.p90], ['p95', metrics.p95], ['p99', metrics.p99], ['max', metrics.max]];
+      const scale = Math.max(...values.map(([, value]) => number(value)), 0.001);
+      document.getElementById('bars').innerHTML = values.map(([label, value]) => `
+        <div class="bar-row"><span>${label}</span><div class="track"><i style="width:${Math.max(3, number(value) / scale * 100)}%"></i></div><strong>${formatUs(value)} µs</strong></div>
+      `).join('');
+    }
 
-      const maxScale = Math.max(p99, p90, p50, p95, max, mean, 1);
-      setBar('bar50', p50, maxScale);
-      setBar('bar90', p90, maxScale);
-      setBar('bar95', p95, maxScale);
-      setBar('barMax', max, maxScale);
+    function render(raw) {
+      const data = normalize(raw);
+      errorBox.hidden = true;
+      document.getElementById('backend').textContent = data.backend;
+      document.getElementById('model').textContent = data.model || 'unnamed';
+      document.getElementById('shape').textContent = `${data.input_size || '?'} × ${data.batch_size || 1}`;
+      document.getElementById('samples').textContent = data.samples || data.e2e.samples || '-';
 
-      document.getElementById('p50').textContent = `${p50.toFixed(3)} us`;
-      document.getElementById('p90').textContent = `${p90.toFixed(3)} us`;
-      document.getElementById('p95').textContent = `${p95.toFixed(3)} us`;
-      document.getElementById('max').textContent = `${max.toFixed(3)} us`;
+      document.getElementById('e2eP99').textContent = formatUs(data.e2e.p99);
+      document.getElementById('e2eMean').textContent = `${formatUs(data.e2e.mean)} µs mean`;
+      document.getElementById('e2eMin').textContent = `${formatUs(data.e2e.min)} min`;
+      document.getElementById('e2eMax').textContent = `${formatUs(data.e2e.max)} max`;
 
-      const statusP99 = p99 <= 1.0 ? 'Great: target under 1µs' : 'Above 1µs target. Profile kernel/path';
-      const status = document.createElement('p');
-      status.className = 'status';
-      status.textContent = statusP99;
-      const existing = tips.querySelector('.status');
-      if (existing) {
-        existing.remove();
+      const gpu = data.gpu;
+      document.getElementById('gpuP99').textContent = gpu ? formatUs(gpu.p99) : 'n/a';
+      document.getElementById('gpuMean').textContent = gpu ? `${formatUs(gpu.mean)} µs mean` : 'CUDA timing unavailable';
+      document.getElementById('gpuMin').textContent = gpu ? `${formatUs(gpu.min)} min` : '- min';
+      document.getElementById('gpuMax').textContent = gpu ? `${formatUs(gpu.max)} max` : '- max';
+
+      const slo = data.slo || {};
+      const hasTarget = Number.isFinite(Number(slo.target_us)) && slo.target_us !== null;
+      const observed = number(slo.observed_p99_us);
+      const ratio = hasTarget ? Math.min(1, observed / number(slo.target_us, 1)) : 0;
+      const gauge = document.getElementById('gauge');
+      gauge.style.setProperty('--score', `${ratio * 360}deg`);
+      gauge.classList.toggle('failed', hasTarget && !slo.passed);
+      document.getElementById('sloValue').textContent = hasTarget ? (slo.passed ? 'PASS' : 'MISS') : 'OPEN';
+      document.getElementById('sloStatus').textContent = hasTarget ? `${slo.scope || 'e2e'} p99` : 'No target';
+      document.getElementById('sloDetail').textContent = hasTarget
+        ? `${formatUs(observed)} µs observed / ${formatUs(slo.target_us)} µs budget`
+        : 'Run with --target-us to emit a gate.';
+
+      const overhead = gpu ? number(data.e2e.p99) - number(gpu.p99) : null;
+      const tailRatio = number(data.e2e.p50) > 0 ? number(data.e2e.p99) / number(data.e2e.p50) : 0;
+      let title = 'Host path is the visible boundary';
+      let diagnosis = gpu
+        ? `${formatUs(Math.max(0, overhead))} µs of p99 sits outside GPU compute. Inspect transfers, enqueue, synchronization, and host scheduling.`
+        : 'This backend exposes end-to-end timing only. Use a strict TensorRT run for CUDA-event evidence.';
+      if (gpu && overhead <= number(gpu.p99) * 0.25) {
+        title = 'GPU compute dominates';
+        diagnosis = 'Kernel execution accounts for most of p99. Inspect fusion, precision, tactics, and model topology.';
+      } else if (tailRatio > 2) {
+        title = 'Tail amplification detected';
+        diagnosis += ` p99 is ${tailRatio.toFixed(1)}× p50, indicating substantial jitter.`;
       }
-      tips.appendChild(status);
+      document.getElementById('diagnosisTitle').textContent = title;
+      document.getElementById('diagnosisText').textContent = diagnosis;
+      document.getElementById('jitter').textContent = `${formatUs(data.e2e.stddev)} µs jitter`;
+      document.getElementById('throughput').textContent = `${number(data.throughput_ips).toLocaleString(undefined, { maximumFractionDigits: 0 })} / s`;
+      document.getElementById('sampleRate').textContent = `${number(data.throughput_samples_per_second || data.throughput_ips).toLocaleString(undefined, { maximumFractionDigits: 0 })} / s`;
+      document.getElementById('fallback').textContent = data.fallback_used ? 'USED - evidence invalid' : 'not used';
+      document.getElementById('fallback').classList.toggle('danger', Boolean(data.fallback_used));
 
-      cards.hidden = false;
-      chart.hidden = false;
-      tips.hidden = false;
+      renderBars(data.e2e);
+      dashboard.hidden = false;
+    }
+
+    async function loadFile(file) {
+      try {
+        render(JSON.parse(await file.text()));
+      } catch (error) {
+        dashboard.hidden = true;
+        errorBox.textContent = error.message;
+        errorBox.hidden = false;
+      }
+    }
+
+    dropZone.addEventListener('click', (event) => {
+      if (event.target.id !== 'demoButton') fileInput.click();
     });
+    dropZone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') fileInput.click();
+    });
+    fileInput.addEventListener('change', (event) => event.target.files[0] && loadFile(event.target.files[0]));
+    dropZone.addEventListener('dragover', (event) => { event.preventDefault(); dropZone.classList.add('dragging'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragging'));
+    dropZone.addEventListener('drop', (event) => {
+      event.preventDefault(); dropZone.classList.remove('dragging');
+      if (event.dataTransfer.files[0]) loadFile(event.dataTransfer.files[0]);
+    });
+    document.getElementById('demoButton').addEventListener('click', (event) => { event.stopPropagation(); render(demo); });
   </script>
 </body>
 </html>

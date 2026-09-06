@@ -1,35 +1,41 @@
-# Troubleshooting Playbook
+# Troubleshooting playbook
 
-## 1) TensorRT missing / backend fallback
-- Symptom: binary logs show `Using mock` or backend switches to `mock-cpp-cpu`.
-- Cause: TensorRT headers/libs not discoverable at configure time.
-- Fix: install TensorRT + CUDA runtime and build with `-DMD_WITH_TENSORRT=ON`.
+## Configuration cannot find TensorRT
 
-## 2) High tail latency (`p99_us` unstable)
-- Symptom: `p99_us` above expected budget while mean looks healthy.
-- Likely causes:
-  - Thermal throttling
-  - Power management toggles
-  - Shared GPU usage by other workloads
-  - Dynamic input size changes and hidden allocations
-- Fixes:
-  - Fix input size/batch.
-  - Keep warm-up > 20 iterations.
-  - Pin model in persistent execution context.
-  - Profile with TensorRT inspector.
+Configure production builds with `-DMD_REQUIRE_TENSORRT=ON`. The build needs CUDA Toolkit discovery plus TensorRT 10+ headers and the `nvinfer` and `nvonnxparser` libraries. If installed outside standard paths, export `TENSORRT_ROOT` with `include/` and `lib/` or `lib64/` beneath it.
 
-## 3) CLI exits with code `3`
-- Symptom: `--target-us` check fails.
-- Cause: tail latency exceeds target.
-- Fix:
-  - Confirm hardware conditions.
-  - Rebuild with explicit batch-size and input-size.
-  - Validate model graph includes only required operators.
+Do not accept the warning-only mock build as production evidence. Confirm that CMake prints `TensorRT <major>.x detected`.
 
-## 4) `infer` returns false
-- Symptom: benchmark aborts with inference error.
-- Causes:
-  - Wrong model input size.
-  - Engine/input binding mismatch.
-  - Missing CUDA symbols/runtime.
-- Fix: compare input/output tensor shapes and regenerate engine with fixed batch/profile.
+## Exit code 2: backend or model load failure
+
+Common causes are a missing model, a serialized engine built for a different GPU/TensorRT stack, fewer or more than one input/output tensor, a non-FP32 boundary tensor, or a dynamic shape. Rebuild a fixed-shape engine on the deployment GPU and rerun with `--backend tensorrt`.
+
+TensorRT engines are hardware and software specific. Store the source ONNX and build recipe; do not assume a plan file is portable.
+
+## Exit code 3: latency SLO missed
+
+Inspect `slo.scope` first. For `device_compute`, profile kernels and fusion. For `end_to_end`, also inspect transfers, host copies, enqueue overhead, and synchronization.
+
+Capture a baseline with `trtexec`, then use Nsight Systems when the application and `trtexec` disagree. Lock or record GPU clocks, power mode, temperature, and concurrent GPU consumers. Increase warmup before drawing conclusions.
+
+## Exit code 4: device metric unavailable
+
+`--target-scope device` was requested on a backend without CUDA-event timing, normally the mock backend. This is an intentional policy failure. Use TensorRT or gate `e2e` for CPU/mock diagnostics.
+
+## Input element mismatch
+
+The runtime requires `input_size * batch` to exactly equal the serialized engine's fixed input volume. Inspect the engine with `trtexec --loadEngine=<path> --dumpLayerInfo` and pass matching CLI values.
+
+Dynamic dimensions are rejected. For edge latency, create one optimized engine per supported shape rather than changing optimization profiles on the hot path.
+
+## Device p99 is low but end-to-end p99 is high
+
+The difference is host staging, H2D/D2H copies, enqueue cost, synchronization, and result materialization. Keep data resident on the GPU where the surrounding pipeline allows it, use CUDA graphs for enqueue-bound micro-models, and avoid synchronizing after every inference when request semantics permit pipelining.
+
+## Tail latency is unstable
+
+Check thermal throttling, power-state transitions, GPU contention, CPU scheduling, NUMA placement, pageable-memory regressions, and debug/profiling instrumentation. This runner uses pinned buffers and a dedicated stream; operating-system and hardware noise still remain.
+
+## Correctness before speed
+
+This scaffold tests transport and timing behavior, not model accuracy. Before deployment, compare TensorRT outputs against an authoritative validation set and define numerical tolerances for the chosen precision. A fast engine with unvalidated outputs is not deployable.

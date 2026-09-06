@@ -4,26 +4,48 @@
 
 #include <NvOnnxParser.h>
 
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <memory>
-#include <string_view>
+#include <optional>
+#include <string>
 #include <vector>
-
-#include <cuda_runtime_api.h>
 
 namespace mdedge {
 
 namespace {
 
-size_t volume(const nvinfer1::Dims& dims) {
-  size_t v = 1;
-  for (int i = 0; i < dims.nbDims; ++i) {
-    v *= static_cast<size_t>(dims.d[i]);
+std::optional<size_t> checked_volume(const nvinfer1::Dims& dims) {
+  if (dims.nbDims <= 0) {
+    return std::nullopt;
   }
-  return v;
+  size_t result = 1;
+  for (int32_t i = 0; i < dims.nbDims; ++i) {
+    if (dims.d[i] <= 0) {
+      return std::nullopt;
+    }
+    const auto dimension = static_cast<size_t>(dims.d[i]);
+    if (result > std::numeric_limits<size_t>::max() / dimension) {
+      return std::nullopt;
+    }
+    result *= dimension;
+  }
+  return result;
 }
+
+bool cuda_ok(cudaError_t status, const char* operation) {
+  if (status == cudaSuccess) {
+    return true;
+  }
+  std::cerr << operation << " failed: " << cudaGetErrorString(status) << '\n';
+  return false;
+}
+
+template <typename T>
+using TrtUniquePtr = std::unique_ptr<T>;
 
 } // namespace
 
@@ -33,24 +55,37 @@ TensorRTInferenceEngine::~TensorRTInferenceEngine() {
   destroyResources();
 }
 
-void TensorRTInferenceEngine::Logger::log(nvinfer1::ILogger::Severity severity, const char* msg) noexcept {
+void TensorRTInferenceEngine::Logger::log(
+    nvinfer1::ILogger::Severity severity,
+    const char* msg) noexcept {
   if (severity <= nvinfer1::ILogger::Severity::kWARNING) {
-    std::cerr << "[TRT] " << msg << '\n';
+    std::cerr << "[TensorRT] " << msg << '\n';
   }
 }
 
 void TensorRTInferenceEngine::destroyResources() {
-  if (context_) {
-    context_->destroy();
-    context_ = nullptr;
+  if (stream_) {
+    cudaStreamSynchronize(stream_);
   }
-  if (engine_) {
-    engine_->destroy();
-    engine_ = nullptr;
+  if (device_start_) {
+    cudaEventDestroy(device_start_);
+    device_start_ = nullptr;
   }
-  if (runtime_) {
-    runtime_->destroy();
-    runtime_ = nullptr;
+  if (device_stop_) {
+    cudaEventDestroy(device_stop_);
+    device_stop_ = nullptr;
+  }
+  if (stream_) {
+    cudaStreamDestroy(stream_);
+    stream_ = nullptr;
+  }
+  if (input_host_) {
+    cudaFreeHost(input_host_);
+    input_host_ = nullptr;
+  }
+  if (output_host_) {
+    cudaFreeHost(output_host_);
+    output_host_ = nullptr;
   }
   if (input_device_) {
     cudaFree(input_device_);
@@ -60,11 +95,88 @@ void TensorRTInferenceEngine::destroyResources() {
     cudaFree(output_device_);
     output_device_ = nullptr;
   }
-  bindings_[0] = bindings_[1] = nullptr;
-  input_binding_ = -1;
-  output_binding_ = -1;
+
+  delete context_;
+  context_ = nullptr;
+  delete engine_;
+  engine_ = nullptr;
+  delete runtime_;
+  runtime_ = nullptr;
+
   input_bytes_ = 0;
   output_bytes_ = 0;
+  input_name_.clear();
+  output_name_.clear();
+  last_device_latency_us_.reset();
+}
+
+bool TensorRTInferenceEngine::initializeExecution() {
+  if (!engine_) {
+    return false;
+  }
+
+  const int32_t io_count = engine_->getNbIOTensors();
+  for (int32_t i = 0; i < io_count; ++i) {
+    const char* name = engine_->getIOTensorName(i);
+    if (!name) {
+      continue;
+    }
+    const auto mode = engine_->getTensorIOMode(name);
+    if (mode == nvinfer1::TensorIOMode::kINPUT) {
+      if (!input_name_.empty()) {
+        std::cerr << "Only one input tensor is supported by this low-latency runner\n";
+        return false;
+      }
+      input_name_ = name;
+    } else if (mode == nvinfer1::TensorIOMode::kOUTPUT) {
+      if (!output_name_.empty()) {
+        std::cerr << "Only one output tensor is supported by this low-latency runner\n";
+        return false;
+      }
+      output_name_ = name;
+    }
+  }
+
+  if (input_name_.empty() || output_name_.empty()) {
+    std::cerr << "Engine must expose exactly one input and one output tensor\n";
+    return false;
+  }
+  if (engine_->getTensorDataType(input_name_.c_str()) != nvinfer1::DataType::kFLOAT ||
+      engine_->getTensorDataType(output_name_.c_str()) != nvinfer1::DataType::kFLOAT) {
+    std::cerr << "This runner currently requires FP32 input and output tensors\n";
+    return false;
+  }
+
+  const auto input_elements = checked_volume(engine_->getTensorShape(input_name_.c_str()));
+  const auto output_elements = checked_volume(engine_->getTensorShape(output_name_.c_str()));
+  if (!input_elements || !output_elements) {
+    std::cerr << "Dynamic or invalid tensor shape detected; build a fixed-shape engine for this runner\n";
+    return false;
+  }
+  input_bytes_ = *input_elements * sizeof(float);
+  output_bytes_ = *output_elements * sizeof(float);
+
+  context_ = engine_->createExecutionContext();
+  if (!context_) {
+    std::cerr << "Could not create TensorRT execution context\n";
+    return false;
+  }
+  if (!cuda_ok(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking), "cudaStreamCreateWithFlags") ||
+      !cuda_ok(cudaEventCreate(&device_start_), "cudaEventCreate(start)") ||
+      !cuda_ok(cudaEventCreate(&device_stop_), "cudaEventCreate(stop)") ||
+      !cuda_ok(cudaMalloc(&input_device_, input_bytes_), "cudaMalloc(input)") ||
+      !cuda_ok(cudaMalloc(&output_device_, output_bytes_), "cudaMalloc(output)") ||
+      !cuda_ok(cudaMallocHost(&input_host_, input_bytes_), "cudaMallocHost(input)") ||
+      !cuda_ok(cudaMallocHost(&output_host_, output_bytes_), "cudaMallocHost(output)")) {
+    return false;
+  }
+
+  if (!context_->setTensorAddress(input_name_.c_str(), input_device_) ||
+      !context_->setTensorAddress(output_name_.c_str(), output_device_)) {
+    std::cerr << "Could not bind TensorRT tensor addresses\n";
+    return false;
+  }
+  return true;
 }
 
 bool TensorRTInferenceEngine::loadSerializedEngine(const std::string& model_path) {
@@ -74,171 +186,83 @@ bool TensorRTInferenceEngine::loadSerializedEngine(const std::string& model_path
     return false;
   }
 
-  std::vector<char> engine_data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+  std::vector<char> engine_data(
+      (std::istreambuf_iterator<char>(file)),
+      std::istreambuf_iterator<char>());
+  if (engine_data.empty()) {
+    std::cerr << "Serialized engine is empty: " << model_path << '\n';
+    return false;
+  }
+
   runtime_ = nvinfer1::createInferRuntime(logger_);
   if (!runtime_) {
     std::cerr << "Could not create TensorRT runtime\n";
     return false;
   }
-
-  engine_ = runtime_->deserializeCudaEngine(engine_data.data(), engine_data.size(), nullptr);
+  engine_ = runtime_->deserializeCudaEngine(engine_data.data(), engine_data.size());
   if (!engine_) {
-    std::cerr << "Could not deserialize engine\n";
+    std::cerr << "Could not deserialize TensorRT engine\n";
     return false;
   }
-
-  if (engine_->getNbBindings() < 2) {
-    std::cerr << "Engine has fewer than two bindings\n";
-    return false;
-  }
-
-  input_binding_ = 0;
-  output_binding_ = 1;
-  while (input_binding_ < engine_->getNbBindings() && !engine_->bindingIsInput(input_binding_)) {
-    ++input_binding_;
-  }
-  while (output_binding_ < engine_->getNbBindings() && engine_->bindingIsInput(output_binding_)) {
-    ++output_binding_;
-  }
-  if (input_binding_ >= engine_->getNbBindings() || output_binding_ >= engine_->getNbBindings()) {
-    std::cerr << "Could not determine input/output bindings\n";
-    return false;
-  }
-
-  auto input_shape = engine_->getBindingDimensions(input_binding_);
-  auto output_shape = engine_->getBindingDimensions(output_binding_);
-  input_bytes_ = volume(input_shape) * sizeof(float);
-  output_bytes_ = volume(output_shape) * sizeof(float);
-
-  if (cudaMalloc(&input_device_, input_bytes_) != cudaSuccess ||
-      cudaMalloc(&output_device_, output_bytes_) != cudaSuccess) {
-    std::cerr << "Could not allocate CUDA buffers\n";
-    return false;
-  }
-
-  bindings_[input_binding_] = input_device_;
-  bindings_[output_binding_] = output_device_;
-
-  context_ = engine_->createExecutionContext();
-  if (!context_) {
-    std::cerr << "Could not create execution context\n";
-    return false;
-  }
-
-  return true;
+  return initializeExecution();
 }
 
 bool TensorRTInferenceEngine::loadOnnx(const std::string& model_path) {
-  auto builder = nvinfer1::createInferBuilder(logger_);
+  TrtUniquePtr<nvinfer1::IBuilder> builder(nvinfer1::createInferBuilder(logger_));
   if (!builder) {
     std::cerr << "Could not create TensorRT builder\n";
     return false;
   }
 
-  auto network = builder->createNetworkV2(1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH));
+  TrtUniquePtr<nvinfer1::INetworkDefinition> network(builder->createNetworkV2(0U));
   if (!network) {
     std::cerr << "Could not create TensorRT network\n";
     return false;
   }
-
-  auto parser = nvonnxparser::createParser(*network, logger_);
-  if (!parser || !parser->parseFromFile(model_path.c_str(), static_cast<int>(nvinfer1::ILogger::Severity::kWARNING))) {
-    std::cerr << "Failed to parse ONNX model\n";
-    if (parser) parser->destroy();
-    network->destroy();
-    builder->destroy();
+  TrtUniquePtr<nvonnxparser::IParser> parser(nvonnxparser::createParser(*network, logger_));
+  if (!parser || !parser->parseFromFile(
+          model_path.c_str(),
+          static_cast<int32_t>(nvinfer1::ILogger::Severity::kWARNING))) {
+    std::cerr << "Failed to parse ONNX model: " << model_path << '\n';
+    if (parser) {
+      for (int32_t i = 0; i < parser->getNbErrors(); ++i) {
+        std::cerr << "[ONNX] " << parser->getError(i)->desc() << '\n';
+      }
+    }
     return false;
   }
 
-  auto config = builder->createBuilderConfig();
+  TrtUniquePtr<nvinfer1::IBuilderConfig> config(builder->createBuilderConfig());
   if (!config) {
-    parser->destroy();
-    network->destroy();
-    builder->destroy();
+    std::cerr << "Could not create TensorRT builder configuration\n";
     return false;
   }
+  config->setMemoryPoolLimit(
+      nvinfer1::MemoryPoolType::kWORKSPACE,
+      static_cast<size_t>(256U) * 1024U * 1024U);
 
-  if (builder->platformHasFastFp16()) {
-    config->setFlag(nvinfer1::BuilderFlag::kFP16);
-  }
-  config->setMaxWorkspaceSize(1UL << 20);
-
-  auto raw_engine = builder->buildEngineWithConfig(*network, *config);
-  if (!raw_engine) {
-    std::cerr << "Could not build TensorRT engine from ONNX\n";
-    config->destroy();
-    parser->destroy();
-    network->destroy();
-    builder->destroy();
+  TrtUniquePtr<nvinfer1::IHostMemory> serialized(
+      builder->buildSerializedNetwork(*network, *config));
+  if (!serialized) {
+    std::cerr << "Could not build serialized TensorRT engine from ONNX\n";
     return false;
   }
 
   runtime_ = nvinfer1::createInferRuntime(logger_);
   if (!runtime_) {
-    raw_engine->destroy();
-    config->destroy();
-    parser->destroy();
-    network->destroy();
-    builder->destroy();
+    std::cerr << "Could not create TensorRT runtime\n";
     return false;
   }
-
-  auto serialized = raw_engine->serialize();
-  if (!serialized) {
-    std::cerr << "Could not serialize built engine\n";
-    runtime_->destroy();
-    raw_engine->destroy();
-    config->destroy();
-    parser->destroy();
-    network->destroy();
-    builder->destroy();
-    return false;
-  }
-
-  engine_ = runtime_->deserializeCudaEngine(serialized->data(), serialized->size(), nullptr);
-  serialized->destroy();
-  raw_engine->destroy();
-  config->destroy();
-  parser->destroy();
-  network->destroy();
-  builder->destroy();
-
+  engine_ = runtime_->deserializeCudaEngine(serialized->data(), serialized->size());
   if (!engine_) {
-    std::cerr << "Could not deserialize built engine\n";
+    std::cerr << "Could not deserialize the engine built from ONNX\n";
     return false;
   }
-
-  // same extraction logic
-  input_binding_ = 0;
-  output_binding_ = 1;
-  while (input_binding_ < engine_->getNbBindings() && !engine_->bindingIsInput(input_binding_)) {
-    ++input_binding_;
-  }
-  while (output_binding_ < engine_->getNbBindings() && engine_->bindingIsInput(output_binding_)) {
-    ++output_binding_;
-  }
-
-  auto input_shape = engine_->getBindingDimensions(input_binding_);
-  auto output_shape = engine_->getBindingDimensions(output_binding_);
-  input_bytes_ = volume(input_shape) * sizeof(float);
-  output_bytes_ = volume(output_shape) * sizeof(float);
-
-  if (cudaMalloc(&input_device_, input_bytes_) != cudaSuccess ||
-      cudaMalloc(&output_device_, output_bytes_) != cudaSuccess) {
-    std::cerr << "Could not allocate CUDA buffers\n";
-    return false;
-  }
-
-  bindings_[input_binding_] = input_device_;
-  bindings_[output_binding_] = output_device_;
-
-  context_ = engine_->createExecutionContext();
-  return context_ != nullptr;
+  return initializeExecution();
 }
 
 bool TensorRTInferenceEngine::load(const std::string& model_path) {
   destroyResources();
-
   if (model_path.size() >= 5 &&
       model_path.compare(model_path.size() - 5, 5, ".onnx") == 0) {
     return loadOnnx(model_path);
@@ -246,37 +270,49 @@ bool TensorRTInferenceEngine::load(const std::string& model_path) {
   return loadSerializedEngine(model_path);
 }
 
-bool TensorRTInferenceEngine::infer(const std::vector<float>& input, std::vector<float>& output) {
-  if (!context_ || input.empty() || !input_device_ || !output_device_) {
+bool TensorRTInferenceEngine::infer(
+    const std::vector<float>& input,
+    std::vector<float>& output) {
+  last_device_latency_us_.reset();
+  if (!context_ || !stream_ || !input_device_ || !output_device_ ||
+      !input_host_ || !output_host_ || input.empty()) {
     return false;
   }
   if (input.size() * sizeof(float) != input_bytes_) {
-    std::cerr << "Input size mismatch\n";
-    return false;
-  }
-
-  cudaError_t err = cudaMemcpyAsync(input_device_, input.data(), input_bytes_, cudaMemcpyHostToDevice, 0);
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMemcpyAsync H2D failed\n";
-    return false;
-  }
-
-  if (!context_->enqueueV2(bindings_, 0, nullptr)) {
-    std::cerr << "Inference enqueue failed\n";
+    std::cerr << "Input size mismatch: received " << input.size()
+              << " FP32 elements, expected " << (input_bytes_ / sizeof(float)) << '\n';
     return false;
   }
 
   output.resize(output_bytes_ / sizeof(float));
-  err = cudaMemcpyAsync(output.data(), output_device_, output_bytes_, cudaMemcpyDeviceToHost, 0);
-  if (err != cudaSuccess) {
-    std::cerr << "cudaMemcpyAsync D2H failed\n";
+  std::memcpy(input_host_, input.data(), input_bytes_);
+
+  if (!cuda_ok(cudaMemcpyAsync(
+          input_device_, input_host_, input_bytes_, cudaMemcpyHostToDevice, stream_),
+          "cudaMemcpyAsync(H2D)") ||
+      !cuda_ok(cudaEventRecord(device_start_, stream_), "cudaEventRecord(start)")) {
     return false;
   }
-  if (cudaStreamSynchronize(0) != cudaSuccess) {
-    std::cerr << "cudaStreamSynchronize failed\n";
+  if (!context_->enqueueV3(stream_)) {
+    std::cerr << "TensorRT enqueueV3 failed\n";
+    return false;
+  }
+  if (!cuda_ok(cudaEventRecord(device_stop_, stream_), "cudaEventRecord(stop)") ||
+      !cuda_ok(cudaMemcpyAsync(
+          output_host_, output_device_, output_bytes_, cudaMemcpyDeviceToHost, stream_),
+          "cudaMemcpyAsync(D2H)") ||
+      !cuda_ok(cudaStreamSynchronize(stream_), "cudaStreamSynchronize")) {
     return false;
   }
 
+  float elapsed_ms = 0.0F;
+  if (!cuda_ok(
+          cudaEventElapsedTime(&elapsed_ms, device_start_, device_stop_),
+          "cudaEventElapsedTime")) {
+    return false;
+  }
+  last_device_latency_us_ = static_cast<double>(elapsed_ms) * 1000.0;
+  std::memcpy(output.data(), output_host_, output_bytes_);
   return true;
 }
 
@@ -286,6 +322,10 @@ size_t TensorRTInferenceEngine::input_elements_per_batch() const {
 
 const char* TensorRTInferenceEngine::backend_name() const {
   return "tensorrt-gpu";
+}
+
+std::optional<double> TensorRTInferenceEngine::last_device_latency_us() const {
+  return last_device_latency_us_;
 }
 
 } // namespace mdedge

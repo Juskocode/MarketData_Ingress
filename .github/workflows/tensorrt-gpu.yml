@@ -1,0 +1,55 @@
+name: TensorRT GPU Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_path:
+        description: Fixed-shape FP32 .engine or .onnx path available on the runner
+        required: true
+        default: models/model.engine
+      input_size:
+        description: FP32 elements per sample
+        required: true
+        default: "512"
+      target_us:
+        description: Device-compute p99 target in microseconds
+        required: true
+        default: "1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  gpu-benchmark:
+    runs-on: [self-hosted, linux, x64, gpu, tensorrt]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure with required TensorRT
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMD_REQUIRE_TENSORRT=ON
+          -DMD_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Run deterministic tests first
+        run: ctest --test-dir build --output-on-failure
+      - name: Enforce GPU device-latency SLO
+        run: |
+          test -f "${{ inputs.model_path }}"
+          ./build/bin/marketdata_ingress \
+            --backend tensorrt \
+            --model "${{ inputs.model_path }}" \
+            --input-size "${{ inputs.input_size }}" \
+            --iterations 2000 \
+            --warmup 200 \
+            --target-scope device \
+            --target-us "${{ inputs.target_us }}" \
+            --json-out build/tensorrt_metrics.json
+      - name: Upload GPU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tensorrt-gpu-metrics
+          path: build/tensorrt_metrics.json
+          if-no-files-found: warn
