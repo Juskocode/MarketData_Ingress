@@ -29,7 +29,7 @@ The PR script runs five input volumes and verifies malformed-input rejection, th
 
 ## GPU release gate
 
-Provision a self-hosted Linux runner with labels `gpu` and `tensorrt`, CUDA Toolkit, TensorRT 10+, CMake, Ninja, and a fixed-shape model available at the workflow input path. Trigger `TensorRT GPU Validation` manually with the model shape and target.
+Provision a self-hosted Linux runner version 2.329.0 or newer with labels `gpu` and `tensorrt`, CUDA Toolkit, TensorRT 10+, CMake, Ninja, and a fixed-shape model available at the workflow input path. Trigger `TensorRT GPU Validation` manually with the model shape and target.
 
 A production release should require all of the following evidence:
 

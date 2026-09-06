@@ -42,7 +42,7 @@ jobs:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build g++ clang
       - name: Configure deterministic mock build
@@ -64,7 +64,7 @@ jobs:
         run: ./scripts/ci_pr_checks.sh build
       - name: Upload benchmark evidence
         if: always() && matrix.deployability
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-evidence
           path: build/marketdata_metrics_*.json
@@ -74,7 +74,7 @@ jobs:
     name: Source and shell policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate shell syntax
         run: bash -n scripts/*.sh
       - name: Enforce no Python on the native hot path
