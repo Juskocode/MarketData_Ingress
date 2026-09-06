@@ -6,6 +6,7 @@ A native C++17 edge-inference benchmark and deployment scaffold for fixed-shape 
 
 - TensorRT 10+ runtime using the named-tensor API and `enqueueV3`.
 - Dedicated non-blocking CUDA stream, persistent device buffers, pinned host staging buffers, and CUDA-event device timing.
+- Preallocated pointer-and-capacity inference API; the measured loop performs no vector growth or backend buffer allocation.
 - End-to-end p50/p90/p95/p99/max/jitter plus GPU-compute distributions.
 - Build revision, TensorRT/CUDA versions, GPU model, compute capability, and device-memory provenance in every metrics artifact.
 - Strict TensorRT selection. A forced TensorRT run cannot silently become a mock benchmark.

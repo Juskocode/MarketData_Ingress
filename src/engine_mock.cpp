@@ -1,8 +1,5 @@
 #include "marketdata_infer/mock_engine.h"
 
-#include <algorithm>
-#include <cstdlib>
-
 namespace mdedge {
 
 bool MockInferenceEngine::load(const std::string& model_path) {
@@ -11,19 +8,29 @@ bool MockInferenceEngine::load(const std::string& model_path) {
   return true;
 }
 
-bool MockInferenceEngine::infer(const std::vector<float>& input, std::vector<float>& output) {
-  if (input.size() == 0) {
+bool MockInferenceEngine::infer_into(
+    const float* input,
+    size_t input_elements,
+    float* output,
+    size_t output_capacity,
+    size_t& output_elements) {
+  output_elements = 0;
+  if (!input || !output || input_elements == 0 || output_capacity < input_elements) {
     return false;
   }
-  output.resize(input.size());
-  std::transform(input.begin(), input.end(), output.begin(), [](float x) {
-    return (x * 0.25f) + 0.333f;
-  });
+  for (size_t i = 0; i < input_elements; ++i) {
+    output[i] = (input[i] * 0.25F) + 0.333F;
+  }
+  output_elements = input_elements;
   return true;
 }
 
 size_t MockInferenceEngine::input_elements_per_batch() const {
   return input_elements_;
+}
+
+size_t MockInferenceEngine::output_elements_per_batch() const {
+  return 0;
 }
 
 const char* MockInferenceEngine::backend_name() const {

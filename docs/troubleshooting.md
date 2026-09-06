@@ -36,6 +36,8 @@ Graph capture was requested on a non-GPU backend or TensorRT/CUDA rejected the c
 
 The runtime requires `input_size * batch` to exactly equal the serialized engine's fixed input volume. Inspect the engine with `trtexec --loadEngine=<path> --dumpLayerInfo` and pass matching CLI values.
 
+The backend also checks the preallocated output capacity against the engine's fixed output volume. A capacity failure indicates an incorrect backend shape contract and is never repaired by allocating on the hot path.
+
 Dynamic dimensions are rejected. For edge latency, create one optimized engine per supported shape rather than changing optimization profiles on the hot path.
 
 ## Device p99 is low but end-to-end p99 is high

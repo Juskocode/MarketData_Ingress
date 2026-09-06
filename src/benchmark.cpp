@@ -125,10 +125,19 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   for (size_t i = 0; i < input.size(); ++i) {
     input[i] = static_cast<float>(i % 97U) / 97.0F;
   }
-  std::vector<float> output;
+  const size_t declared_output_elements = engine.output_elements_per_batch();
+  const size_t output_capacity = declared_output_elements == 0
+      ? total_input
+      : declared_output_elements;
+  if (output_capacity == 0) {
+    throw std::runtime_error("Engine reported zero output capacity");
+  }
+  std::vector<float> output(output_capacity);
+  size_t output_elements = 0;
 
   for (size_t i = 0; i < opts.warmup; ++i) {
-    if (!engine.infer(input, output)) {
+    if (!engine.infer_into(
+            input.data(), input.size(), output.data(), output.size(), output_elements)) {
       throw std::runtime_error("Warmup inference failed");
     }
   }
@@ -140,7 +149,8 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
 
   for (size_t i = 0; i < opts.iterations; ++i) {
     const auto start = std::chrono::steady_clock::now();
-    if (!engine.infer(input, output)) {
+    if (!engine.infer_into(
+            input.data(), input.size(), output.data(), output.size(), output_elements)) {
       throw std::runtime_error("Inference failed during benchmark");
     }
     const auto end = std::chrono::steady_clock::now();
@@ -158,10 +168,10 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   }
   if (opts.verify_identity) {
     OutputValidation validation;
-    validation.compared_elements = std::min(input.size(), output.size());
-    validation.mismatches = input.size() > output.size()
-        ? input.size() - output.size()
-        : output.size() - input.size();
+    validation.compared_elements = std::min(input.size(), output_elements);
+    validation.mismatches = input.size() > output_elements
+        ? input.size() - output_elements
+        : output_elements - input.size();
     for (size_t i = 0; i < validation.compared_elements; ++i) {
       const double error = std::abs(static_cast<double>(output[i]) - static_cast<double>(input[i]));
       validation.max_abs_error = std::max(validation.max_abs_error, error);

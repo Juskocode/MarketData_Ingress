@@ -8,6 +8,8 @@ Metrics schema version 2 separates latency domains that should never be compared
 
 `latency_us.device_compute` is measured by CUDA events immediately before and after `enqueueV3` on the same non-blocking stream. H2D and D2H transfers are outside the event interval. The field is `null` for the mock backend.
 
+Input, output, device, pinned-host, and latency-sample storage is allocated before measured iterations begin. The hot-path engine contract receives raw pointers and explicit capacities, and reports the number of output elements written. Allocation and shape errors therefore fail outside or at the boundary instead of triggering hidden container growth in the timed loop.
+
 ## JSON schema
 
 ```json

@@ -24,19 +24,29 @@ public:
 
   bool load(const std::string&) override { return true; }
 
-  bool infer(const std::vector<float>& input, std::vector<float>& output) override {
-    if (input.empty()) {
+  bool infer_into(
+      const float* input,
+      size_t input_elements,
+      float* output,
+      size_t output_capacity,
+      size_t& output_elements) override {
+    output_elements = 0;
+    if (!input || !output || input_elements == 0 || output_capacity < input_elements) {
       return false;
     }
-    output = input;
-    if (corrupt_output_) {
-      output.front() += 1.0F;
+    for (size_t i = 0; i < input_elements; ++i) {
+      output[i] = input[i];
     }
+    if (corrupt_output_) {
+      output[0] += 1.0F;
+    }
+    output_elements = input_elements;
     device_latency_us_ += 0.05;
     return true;
   }
 
   size_t input_elements_per_batch() const override { return 16; }
+  size_t output_elements_per_batch() const override { return 16; }
   const char* backend_name() const override { return "timed-test"; }
   std::optional<double> last_device_latency_us() const override {
     return device_latency_us_;

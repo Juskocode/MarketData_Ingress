@@ -5,7 +5,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace mdedge {
 
@@ -82,8 +81,14 @@ class InferenceEngine {
 public:
   virtual ~InferenceEngine() = default;
   virtual bool load(const std::string& model_path) = 0;
-  virtual bool infer(const std::vector<float>& input, std::vector<float>& output) = 0;
+  virtual bool infer_into(
+      const float* input,
+      size_t input_elements,
+      float* output,
+      size_t output_capacity,
+      size_t& output_elements) = 0;
   virtual size_t input_elements_per_batch() const = 0;
+  virtual size_t output_elements_per_batch() const = 0;
   virtual const char* backend_name() const = 0;
 
   virtual std::optional<double> last_device_latency_us() const {

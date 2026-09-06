@@ -310,22 +310,31 @@ bool TensorRTInferenceEngine::load(const std::string& model_path) {
   return loadSerializedEngine(model_path);
 }
 
-bool TensorRTInferenceEngine::infer(
-    const std::vector<float>& input,
-    std::vector<float>& output) {
+bool TensorRTInferenceEngine::infer_into(
+    const float* input,
+    size_t input_elements,
+    float* output,
+    size_t output_capacity,
+    size_t& output_elements) {
   last_device_latency_us_.reset();
+  output_elements = 0;
   if (!context_ || !stream_ || !input_device_ || !output_device_ ||
-      !input_host_ || !output_host_ || input.empty()) {
+      !input_host_ || !output_host_ || !input || !output || input_elements == 0) {
     return false;
   }
-  if (input.size() * sizeof(float) != input_bytes_) {
-    std::cerr << "Input size mismatch: received " << input.size()
+  if (input_elements * sizeof(float) != input_bytes_) {
+    std::cerr << "Input size mismatch: received " << input_elements
               << " FP32 elements, expected " << (input_bytes_ / sizeof(float)) << '\n';
     return false;
   }
+  const size_t expected_output_elements = output_bytes_ / sizeof(float);
+  if (output_capacity < expected_output_elements) {
+    std::cerr << "Output capacity is " << output_capacity
+              << " FP32 elements, expected at least " << expected_output_elements << '\n';
+    return false;
+  }
 
-  output.resize(output_bytes_ / sizeof(float));
-  std::memcpy(input_host_, input.data(), input_bytes_);
+  std::memcpy(input_host_, input, input_bytes_);
 
   if (!cuda_ok(cudaMemcpyAsync(
           input_device_, input_host_, input_bytes_, cudaMemcpyHostToDevice, stream_),
@@ -356,12 +365,17 @@ bool TensorRTInferenceEngine::infer(
     return false;
   }
   last_device_latency_us_ = static_cast<double>(elapsed_ms) * 1000.0;
-  std::memcpy(output.data(), output_host_, output_bytes_);
+  std::memcpy(output, output_host_, output_bytes_);
+  output_elements = expected_output_elements;
   return true;
 }
 
 size_t TensorRTInferenceEngine::input_elements_per_batch() const {
   return input_bytes_ / sizeof(float);
+}
+
+size_t TensorRTInferenceEngine::output_elements_per_batch() const {
+  return output_bytes_ / sizeof(float);
 }
 
 const char* TensorRTInferenceEngine::backend_name() const {
