@@ -137,7 +137,7 @@ panel_count="$(curl -fsS -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
   exit 1
 }
 
-evidence_dir="${ROOT_DIR}/${BUILD_DIR}/monitoring-evidence"
+evidence_dir="${ROOT_DIR}/${BUILD_DIR}/monitoring-stack-evidence"
 mkdir -p "${evidence_dir}"
 cat >"${evidence_dir}/alertmanager.txt" <<EOF
 Alertmanager ready: true

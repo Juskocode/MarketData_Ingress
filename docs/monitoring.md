@@ -209,4 +209,4 @@ The suite validates the production rule file with `promtool`, validates Alertman
 - Grafana provisions the Alertmanager datasource and at least 12 dashboard panels.
 - Alertmanager's readiness and v2 status APIs respond successfully.
 
-Runtime evidence is written to `<build-dir>/monitoring-evidence/alertmanager.txt`.
+Runtime evidence is written to `<build-dir>/monitoring-stack-evidence/alertmanager.txt` and included in the CI monitoring artifact.

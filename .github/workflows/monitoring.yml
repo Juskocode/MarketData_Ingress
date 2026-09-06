@@ -8,6 +8,7 @@ on:
     paths:
       - "CMakeLists.txt"
       - "tools/metrics_exporter.cpp"
+      - "scripts/alerting_test.sh"
       - "scripts/monitoring_*.sh"
       - "scripts/run_monitored_benchmark.sh"
       - "deploy/monitoring/**"
@@ -16,6 +17,7 @@ on:
     paths:
       - "CMakeLists.txt"
       - "tools/metrics_exporter.cpp"
+      - "scripts/alerting_test.sh"
       - "scripts/monitoring_*.sh"
       - "scripts/run_monitored_benchmark.sh"
       - "deploy/monitoring/**"
