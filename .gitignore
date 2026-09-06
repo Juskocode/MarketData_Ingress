@@ -1,0 +1,6 @@
+build/
+out/
+*.swp
+*.swo
+metrics.json
+*.log

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MarketData Ingress Metrics</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>MarketData Ingress · Inference Metrics</h1>
+      <p>Drop a metrics JSON file and get instant latency and throughput diagnostics.</p>
+    </header>
+
+    <section class="panel controls">
+      <input id="fileInput" type="file" accept="application/json" />
+      <p class="hint">Load output from: <code>--json-out</code> in benchmark run.</p>
+    </section>
+
+    <section class="grid" id="cards" hidden>
+      <article class="card">
+        <h2>Backend</h2>
+        <p id="backend">-</p>
+      </article>
+      <article class="card">
+        <h2>Mean (µs)</h2>
+        <p id="mean">-</p>
+      </article>
+      <article class="card">
+        <h2>p99 (µs)</h2>
+        <p id="p99">-</p>
+      </article>
+      <article class="card">
+        <h2>Throughput</h2>
+        <p id="throughput">-</p>
+      </article>
+      <article class="card">
+        <h2>Samples</h2>
+        <p id="samples">-</p>
+      </article>
+      <article class="card">
+        <h2>Input size / batch</h2>
+        <p id="shape">-</p>
+      </article>
+    </section>
+
+    <section class="panel" id="chart" hidden>
+      <h2>Latency distribution</h2>
+      <div class="bars">
+        <div class="bar-row">
+          <span>p50</span><div class="meter"><i id="bar50"></i></div><strong id="p50">-</strong>
+        </div>
+        <div class="bar-row">
+          <span>p90</span><div class="meter"><i id="bar90"></i></div><strong id="p90">-</strong>
+        </div>
+        <div class="bar-row">
+          <span>p95</span><div class="meter"><i id="bar95"></i></div><strong id="p95">-</strong>
+        </div>
+        <div class="bar-row">
+          <span>max</span><div class="meter"><i id="barMax"></i></div><strong id="max">-</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="tips" hidden>
+      <h2>Troubleshooting hints</h2>
+      <ul>
+        <li>When p99 rises: inspect thermal state, clock throttling, and power limits.</li>
+        <li>If mock backend is unexpectedly active, confirm TensorRT runtime + model path.</li>
+        <li>For jitter, increase input batching or disable noisy background jobs.</li>
+        <li>Compare warmup and steady-state values; warmup-only spikes are expected.</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const cards = document.getElementById('cards');
+    const chart = document.getElementById('chart');
+    const tips = document.getElementById('tips');
+
+    function setBar(id, value, scale) {
+      const el = document.getElementById(id);
+      const width = Math.min(100, Math.max(5, value / scale * 100));
+      el.style.width = `${width}%`;
+    }
+
+    fileInput.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) {
+        return;
+      }
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      const mean = Number(data.mean_us || 0);
+      const p50 = Number(data.p50_us || 0);
+      const p90 = Number(data.p90_us || 0);
+      const p95 = Number(data.p95_us || 0);
+      const p99 = Number(data.p99_us || 0);
+      const max = Number(data.max_us || 0);
+
+      document.getElementById('backend').textContent = data.backend || 'n/a';
+      document.getElementById('mean').textContent = mean.toFixed(3);
+      document.getElementById('p99').textContent = p99.toFixed(3);
+      document.getElementById('throughput').textContent = `${Number(data.throughput_ips || 0).toFixed(1)} / s`;
+      document.getElementById('samples').textContent = `${data.samples || 0}`;
+      document.getElementById('shape').textContent = `${data.input_size || 0} × batch ${data.batch_size || 1}`;
+
+      const maxScale = Math.max(p99, p90, p50, p95, max, mean, 1);
+      setBar('bar50', p50, maxScale);
+      setBar('bar90', p90, maxScale);
+      setBar('bar95', p95, maxScale);
+      setBar('barMax', max, maxScale);
+
+      document.getElementById('p50').textContent = `${p50.toFixed(3)} us`;
+      document.getElementById('p90').textContent = `${p90.toFixed(3)} us`;
+      document.getElementById('p95').textContent = `${p95.toFixed(3)} us`;
+      document.getElementById('max').textContent = `${max.toFixed(3)} us`;
+
+      const statusP99 = p99 <= 1.0 ? 'Great: target under 1µs' : 'Above 1µs target. Profile kernel/path';
+      const status = document.createElement('p');
+      status.className = 'status';
+      status.textContent = statusP99;
+      const existing = tips.querySelector('.status');
+      if (existing) {
+        existing.remove();
+      }
+      tips.appendChild(status);
+
+      cards.hidden = false;
+      chart.hidden = false;
+      tips.hidden = false;
+    });
+  </script>
+</body>
+</html>

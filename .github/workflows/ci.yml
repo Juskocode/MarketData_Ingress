@@ -1,0 +1,44 @@
+name: MarketData Edge CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake build-essential
+      - name: Configure (mock fallback)
+        run: |
+          cmake -S . -B build -DMD_WITH_TENSORRT=OFF -DMD_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j 2
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Deployability checks
+        run: ./scripts/deployability.sh build
+
+  pull-request-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build-and-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake build-essential
+      - name: Configure (mock fallback)
+        run: |
+          cmake -S . -B build -DMD_WITH_TENSORRT=OFF -DMD_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j 2
+      - name: PR stress and threshold checks
+        run: ./scripts/ci_pr_checks.sh build
