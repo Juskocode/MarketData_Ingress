@@ -90,7 +90,10 @@ if(MD_WITH_TENSORRT)
 endif()
 
 if(HAVE_TENSORRT)
-  add_library(inference_backend src/engine_tensorrt.cpp)
+  add_library(inference_backend
+    src/engine_tensorrt.cpp
+    src/engine_mock.cpp
+  )
   target_include_directories(inference_backend PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${TENSORRT_INCLUDE_DIR}
