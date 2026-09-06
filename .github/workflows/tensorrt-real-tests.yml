@@ -1,0 +1,69 @@
+name: TensorRT Real Hardware Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "include/**"
+      - "src/**"
+      - "tests/**"
+      - "tools/**"
+      - "scripts/tensorrt_real_tests.sh"
+      - ".github/workflows/tensorrt-real-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tensorrt-real-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-tensorrt:
+    name: TensorRT 10+ NVIDIA GPU
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_TENSORRT_PR_TESTS == 'true'
+    runs-on: ${{ fromJSON(vars.TENSORRT_RUNNER_LABELS || '["self-hosted","linux","x64","gpu"]') }}
+    timeout-minutes: 20
+
+    env:
+      MD_TEST_TARGET_US: ${{ vars.TENSORRT_DEVICE_P99_TARGET_US || '1.0' }}
+      MD_TEST_WARMUP: ${{ vars.TENSORRT_TEST_WARMUP || '5000' }}
+      MD_TEST_ITERATIONS: ${{ vars.TENSORRT_TEST_ITERATIONS || '50000' }}
+      MD_TEST_REPEAT_COUNT: "3"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Record NVIDIA runtime
+        run: |
+          nvidia-smi
+          nvcc --version
+
+      - name: Configure required TensorRT build
+        run: |
+          cmake \
+            -S . \
+            -B build-real \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMD_REQUIRE_TENSORRT=ON \
+            -DMD_BUILD_TEST_ENGINE=ON
+
+      - name: Build native binaries
+        run: cmake --build build-real --parallel
+
+      - name: Run portable CTest suite
+        run: ctest --test-dir build-real --output-on-failure
+
+      - name: Run real TensorRT correctness and latency tests
+        run: ./scripts/tensorrt_real_tests.sh build-real build-real/tensorrt-real-evidence
+
+      - name: Upload hardware evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tensorrt-real-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build-real/tensorrt-real-evidence/
+          if-no-files-found: error
+          retention-days: 30
