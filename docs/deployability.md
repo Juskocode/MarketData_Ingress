@@ -29,7 +29,7 @@ The PR script runs five input volumes and verifies malformed-input rejection, th
 
 ## GPU release gate
 
-Provision a self-hosted Linux runner version 2.329.0 or newer with labels `gpu` and `tensorrt`, CUDA Toolkit, TensorRT 10+, CMake, Ninja, and a fixed-shape model available at the workflow input path. Trigger `TensorRT GPU Validation` manually with the model shape and target.
+Provision a self-hosted Linux runner version 2.329.0 or newer with labels `gpu` and `tensorrt`, CUDA Toolkit, TensorRT 10+, CMake, and Ninja. Trigger `TensorRT GPU Validation` manually with the model shape and target. When its model path does not exist, the workflow builds a minimal fixed-shape identity engine in C++ on that GPU before running the SLO.
 
 A production release should require all of the following evidence:
 

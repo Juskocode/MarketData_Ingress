@@ -38,6 +38,14 @@ cmake --build build-trt --parallel
 
 `MD_REQUIRE_TENSORRT=ON` is the production-safe switch: configuration fails instead of quietly producing a mock-only binary.
 
+The TensorRT build also produces a native engine generator. It creates a minimal fixed-shape identity network directly through the TensorRT C++ API, which is useful for installation checks and baseline overhead measurements:
+
+```bash
+./build-trt/bin/marketdata_build_engine \
+  --output models/tiny.engine \
+  --input-size 512
+```
+
 ## Benchmark a fixed-shape engine
 
 ```bash
@@ -72,7 +80,7 @@ Run a benchmark with `--json-out`, open `tools/visualization/index.html`, and dr
 
 Every push and pull request runs GCC Release, GCC Debug with ASan/UBSan, Clang Release, CTest, source-policy checks, and staged deployability checks. Pull requests additionally run input-size stress, invalid-CLI, strict-backend, and threshold-failure tests.
 
-The manual `TensorRT GPU Validation` workflow targets a self-hosted runner labeled `gpu` and `tensorrt`. It requires TensorRT at configure time and uploads the measured JSON as evidence.
+The manual `TensorRT GPU Validation` workflow targets a self-hosted runner labeled `gpu` and `tensorrt`. It requires TensorRT at configure time, generates the native identity engine if its requested model path is absent, and uploads the measured JSON as evidence.
 
 ## Documentation
 

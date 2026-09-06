@@ -107,6 +107,17 @@ target_link_libraries(core_objects PUBLIC inference_backend md_project_options)
 add_executable(marketdata_ingress src/main.cpp)
 target_link_libraries(marketdata_ingress PRIVATE core_objects inference_backend md_project_options)
 
+if(HAVE_TENSORRT)
+  add_executable(marketdata_build_engine src/build_tiny_engine.cpp)
+  target_include_directories(marketdata_build_engine PRIVATE ${TENSORRT_INCLUDE_DIR})
+  target_link_libraries(marketdata_build_engine
+    PRIVATE
+      md_project_options
+      ${TENSORRT_LIBRARY}
+      CUDA::cudart
+  )
+endif()
+
 if(MD_BUILD_TESTS)
   enable_testing()
   add_executable(marketdata_tests
@@ -127,3 +138,6 @@ if(MD_BUILD_TESTS)
 endif()
 
 install(TARGETS marketdata_ingress RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(HAVE_TENSORRT)
+  install(TARGETS marketdata_build_engine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

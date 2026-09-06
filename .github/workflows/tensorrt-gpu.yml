@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       model_path:
-        description: Fixed-shape FP32 .engine or .onnx path available on the runner
+        description: Fixed-shape FP32 model path; a native identity engine is generated when absent
         required: true
         default: models/model.engine
       input_size:
@@ -34,17 +34,30 @@ jobs:
         run: cmake --build build --parallel
       - name: Run deterministic tests first
         run: ctest --test-dir build --output-on-failure
-      - name: Enforce GPU device-latency SLO
+      - name: Generate a native test engine when no model was supplied
+        env:
+          MODEL_PATH: ${{ inputs.model_path }}
+          INPUT_SIZE: ${{ inputs.input_size }}
         run: |
-          test -f "${{ inputs.model_path }}"
+          if [[ ! -f "${MODEL_PATH}" ]]; then
+            ./build/bin/marketdata_build_engine \
+              --output "${MODEL_PATH}" \
+              --input-size "${INPUT_SIZE}"
+          fi
+      - name: Enforce GPU device-latency SLO
+        env:
+          MODEL_PATH: ${{ inputs.model_path }}
+          INPUT_SIZE: ${{ inputs.input_size }}
+          TARGET_US: ${{ inputs.target_us }}
+        run: |
           ./build/bin/marketdata_ingress \
             --backend tensorrt \
-            --model "${{ inputs.model_path }}" \
-            --input-size "${{ inputs.input_size }}" \
+            --model "${MODEL_PATH}" \
+            --input-size "${INPUT_SIZE}" \
             --iterations 2000 \
             --warmup 200 \
             --target-scope device \
-            --target-us "${{ inputs.target_us }}" \
+            --target-us "${TARGET_US}" \
             --json-out build/tensorrt_metrics.json
       - name: Upload GPU evidence
         if: always()
