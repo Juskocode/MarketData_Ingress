@@ -13,11 +13,20 @@ Metrics schema version 2 separates latency domains that should never be compared
 ```json
 {
   "schema_version": 2,
+  "build": { "version": "0.2.0", "revision": "abc123" },
   "model": "models/tiny.engine",
   "backend": "tensorrt-gpu",
   "requested_backend": "tensorrt",
   "fallback_used": false,
   "cuda_graph": true,
+  "environment": {
+    "backend_version": "11.2.1",
+    "device": "NVIDIA RTX 6000 Ada Generation",
+    "compute_capability": "8.9",
+    "cuda_runtime": "13.1",
+    "cuda_driver": "13.1",
+    "device_memory_bytes": 51527024640
+  },
   "samples": 2000,
   "input_size": 512,
   "batch_size": 1,
@@ -75,5 +84,6 @@ The flat `mean_us`, `p99_us`, and related fields remain as end-to-end compatibil
 - Treat a run with `fallback_used: true` as diagnostic evidence only, never as TensorRT SLO evidence.
 - Compare otherwise identical runs with `cuda_graph` false and true to quantify enqueue-bound overhead.
 - Require `validation.passed: true` when benchmarking the generated identity engine. Other models need their own domain-specific golden-output validation.
+- Compare artifacts only when build revision, engine, GPU, TensorRT, CUDA, clocks, and power conditions are equivalent or intentionally changed.
 
 Use at least 200 warmups and 2,000 measured iterations for a hardware claim. Record GPU model, clocks, power mode, TensorRT/CUDA versions, engine hash, and thermal state next to the JSON artifact.

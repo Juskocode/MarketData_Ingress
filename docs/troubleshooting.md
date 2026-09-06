@@ -18,6 +18,8 @@ Inspect `slo.scope` first. For `device_compute`, profile kernels and fusion. For
 
 Capture a baseline with `trtexec`, then use Nsight Systems when the application and `trtexec` disagree. Lock or record GPU clocks, power mode, temperature, and concurrent GPU consumers. Increase warmup before drawing conclusions.
 
+The JSON `environment` object captures the runtime-visible TensorRT version, CUDA runtime and driver versions, GPU name, compute capability, and total device memory. If any field is missing on a TensorRT run, treat the artifact as incomplete and inspect CUDA initialization.
+
 ## Exit code 4: device metric unavailable
 
 `--target-scope device` was requested on a backend without CUDA-event timing, normally the mock backend. This is an intentional policy failure. Use TensorRT or gate `e2e` for CPU/mock diagnostics.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -56,11 +57,21 @@ struct OutputValidation {
   double max_abs_error = 0.0;
 };
 
+struct RuntimeMetadata {
+  std::string backend_version;
+  std::string device_name;
+  std::string compute_capability;
+  std::string cuda_runtime_version;
+  std::string cuda_driver_version;
+  uint64_t device_memory_bytes = 0;
+};
+
 struct InferenceStats {
   LatencyDistribution end_to_end;
   std::optional<LatencyDistribution> device_compute;
   std::optional<OutputValidation> validation;
   bool cuda_graph = false;
+  RuntimeMetadata runtime;
   double throughput_inferences_per_second = 0.0;
   double throughput_samples_per_second = 0.0;
   size_t input_elements_per_batch = 0;
@@ -83,6 +94,9 @@ public:
   }
   virtual bool cuda_graph_enabled() const {
     return false;
+  }
+  virtual RuntimeMetadata runtime_metadata() const {
+    return {};
   }
 };
 

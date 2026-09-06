@@ -10,6 +10,7 @@ public:
   bool infer(const std::vector<float>& input, std::vector<float>& output) override;
   size_t input_elements_per_batch() const override;
   const char* backend_name() const override;
+  RuntimeMetadata runtime_metadata() const override;
 
 private:
   size_t input_elements_ = 512;

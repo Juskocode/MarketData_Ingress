@@ -2,6 +2,14 @@ cmake_minimum_required(VERSION 3.20)
 
 project(MarketData_Ingress VERSION 0.2.0 LANGUAGES CXX)
 
+set(MD_BUILD_REVISION "$ENV{GITHUB_SHA}" CACHE STRING "Build revision embedded in metrics")
+if(MD_BUILD_REVISION STREQUAL "")
+  set(MD_BUILD_REVISION "unknown" CACHE STRING "Build revision embedded in metrics" FORCE)
+endif()
+if(NOT MD_BUILD_REVISION MATCHES "^[A-Za-z0-9._-]+$")
+  message(FATAL_ERROR "MD_BUILD_REVISION may contain only letters, digits, dot, underscore, and dash")
+endif()
+
 option(MD_WITH_TENSORRT "Build the TensorRT backend when TensorRT 10+ is available" ON)
 option(MD_REQUIRE_TENSORRT "Fail configuration unless TensorRT 10+ is available" OFF)
 option(MD_BUILD_TESTS "Build automated tests" ON)
@@ -17,6 +25,10 @@ include(GNUInstallDirs)
 
 add_library(md_project_options INTERFACE)
 target_compile_features(md_project_options INTERFACE cxx_std_17)
+target_compile_definitions(md_project_options INTERFACE
+  MD_PROJECT_VERSION="${PROJECT_VERSION}"
+  MD_BUILD_REVISION="${MD_BUILD_REVISION}"
+)
 if(MSVC)
   target_compile_options(md_project_options INTERFACE /W4 /permissive-)
 else()

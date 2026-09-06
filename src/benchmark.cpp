@@ -15,6 +15,14 @@
 
 namespace mdedge {
 
+#ifndef MD_PROJECT_VERSION
+#define MD_PROJECT_VERSION "unknown"
+#endif
+
+#ifndef MD_BUILD_REVISION
+#define MD_BUILD_REVISION "unknown"
+#endif
+
 namespace {
 
 double percentile(const std::vector<double>& sorted, double p) {
@@ -177,6 +185,7 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   stats.input_elements_per_batch = total_input;
   stats.backend = engine.backend_name();
   stats.cuda_graph = engine.cuda_graph_enabled();
+  stats.runtime = engine.runtime_metadata();
   return stats;
 }
 
@@ -194,11 +203,53 @@ std::string format_metrics_json(const RunOptions& options, const InferenceStats&
   out << std::fixed << std::setprecision(6);
   out << "{\n"
       << "  \"schema_version\": 2,\n"
+      << "  \"build\": {\n"
+      << "    \"version\": \"" << escape_json(MD_PROJECT_VERSION) << "\",\n"
+      << "    \"revision\": \"" << escape_json(MD_BUILD_REVISION) << "\"\n"
+      << "  },\n"
       << "  \"model\": \"" << escape_json(options.model_path) << "\",\n"
       << "  \"backend\": \"" << escape_json(stats.backend) << "\",\n"
       << "  \"requested_backend\": \"" << escape_json(options.requested_backend) << "\",\n"
       << "  \"fallback_used\": " << (options.fallback_used ? "true" : "false") << ",\n"
       << "  \"cuda_graph\": " << (stats.cuda_graph ? "true" : "false") << ",\n"
+      << "  \"environment\": {\n"
+      << "    \"backend_version\": ";
+  if (stats.runtime.backend_version.empty()) {
+    out << "null";
+  } else {
+    out << "\"" << escape_json(stats.runtime.backend_version) << "\"";
+  }
+  out << ",\n    \"device\": ";
+  if (stats.runtime.device_name.empty()) {
+    out << "null";
+  } else {
+    out << "\"" << escape_json(stats.runtime.device_name) << "\"";
+  }
+  out << ",\n    \"compute_capability\": ";
+  if (stats.runtime.compute_capability.empty()) {
+    out << "null";
+  } else {
+    out << "\"" << escape_json(stats.runtime.compute_capability) << "\"";
+  }
+  out << ",\n    \"cuda_runtime\": ";
+  if (stats.runtime.cuda_runtime_version.empty()) {
+    out << "null";
+  } else {
+    out << "\"" << escape_json(stats.runtime.cuda_runtime_version) << "\"";
+  }
+  out << ",\n    \"cuda_driver\": ";
+  if (stats.runtime.cuda_driver_version.empty()) {
+    out << "null";
+  } else {
+    out << "\"" << escape_json(stats.runtime.cuda_driver_version) << "\"";
+  }
+  out << ",\n    \"device_memory_bytes\": ";
+  if (stats.runtime.device_memory_bytes == 0) {
+    out << "null";
+  } else {
+    out << stats.runtime.device_memory_bytes;
+  }
+  out << "\n  },\n"
       << "  \"samples\": " << stats.end_to_end.samples << ",\n"
       << "  \"input_size\": " << options.input_size << ",\n"
       << "  \"batch_size\": " << options.batch_size << ",\n"
@@ -267,6 +318,7 @@ void print_metrics(const RunOptions& options, const InferenceStats& stats) {
             << "Backend          : " << stats.backend << '\n'
             << "Measured samples : " << e2e.samples << '\n'
             << "CUDA graph       : " << (stats.cuda_graph ? "enabled" : "disabled") << '\n'
+            << "Device           : " << (stats.runtime.device_name.empty() ? "unknown" : stats.runtime.device_name) << '\n'
             << std::fixed << std::setprecision(3)
             << "E2E mean / p99   : " << e2e.mean_us << " / " << e2e.p99_us << " us\n";
   if (stats.device_compute) {

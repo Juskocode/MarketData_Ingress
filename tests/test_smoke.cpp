@@ -46,6 +46,13 @@ public:
     return true;
   }
   bool cuda_graph_enabled() const override { return cuda_graph_; }
+  mdedge::RuntimeMetadata runtime_metadata() const override {
+    mdedge::RuntimeMetadata metadata;
+    metadata.backend_version = "test-v1";
+    metadata.device_name = "virtual-gpu";
+    metadata.compute_capability = "9.9";
+    return metadata;
+  }
 
 private:
   bool corrupt_output_ = false;
@@ -79,12 +86,14 @@ int main() {
         "device sample count matches iterations");
   check(stats.validation && stats.validation->passed, "identity output validation passes");
   check(stats.cuda_graph, "execution mode is exported from the engine");
+  check(stats.runtime.device_name == "virtual-gpu", "runtime metadata is collected");
 
   const std::string json = mdedge::format_metrics_json(options, stats);
   check(json.find("\"schema_version\": 2") != std::string::npos, "schema version is exported");
   check(json.find("\"device_compute\": {") != std::string::npos, "device distribution is exported");
   check(json.find("\"kind\": \"identity\"") != std::string::npos, "validation is exported");
   check(json.find("\"cuda_graph\": true") != std::string::npos, "CUDA graph mode is exported");
+  check(json.find("\"device\": \"virtual-gpu\"") != std::string::npos, "device metadata is exported");
   check(json.find("model\\\"with\\\\escapes.engine") != std::string::npos,
         "JSON strings are escaped");
 
@@ -107,6 +116,7 @@ int main() {
     const auto mock_stats = mdedge::run_benchmark(*mock, options);
     check(!mock_stats.device_compute.has_value(), "mock does not invent GPU timing");
     check(mock_stats.throughput_samples_per_second > 0.0, "throughput is calculated");
+    check(mock_stats.runtime.device_name == "host-cpu", "mock runtime identifies the host CPU path");
   }
 
   bool rejected_zero = false;

@@ -30,4 +30,11 @@ const char* MockInferenceEngine::backend_name() const {
   return "mock-cpp-cpu";
 }
 
+RuntimeMetadata MockInferenceEngine::runtime_metadata() const {
+  RuntimeMetadata metadata;
+  metadata.backend_version = "deterministic-v1";
+  metadata.device_name = "host-cpu";
+  return metadata;
+}
+
 } // namespace mdedge

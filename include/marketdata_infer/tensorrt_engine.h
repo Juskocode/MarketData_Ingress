@@ -27,6 +27,7 @@ public:
   std::optional<double> last_device_latency_us() const override;
   bool enable_cuda_graph() override;
   bool cuda_graph_enabled() const override;
+  RuntimeMetadata runtime_metadata() const override;
 
 private:
   bool loadSerializedEngine(const std::string& model_path);
@@ -57,6 +58,7 @@ private:
   cudaEvent_t device_stop_ = nullptr;
   cudaGraphExec_t graph_execution_ = nullptr;
   std::optional<double> last_device_latency_us_;
+  RuntimeMetadata runtime_metadata_;
 };
 
 } // namespace mdedge

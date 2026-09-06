@@ -72,6 +72,7 @@
             <div><dt>Sample rate</dt><dd id="sampleRate">-</dd></div>
             <div><dt>Fallback</dt><dd id="fallback">-</dd></div>
             <div><dt>Validation</dt><dd id="validation">-</dd></div>
+            <div><dt>Device</dt><dd id="device">-</dd></div>
           </dl>
         </article>
       </section>
@@ -87,6 +88,8 @@
     const demo = {
       schema_version: 2,
       model: 'tiny-fused.engine', backend: 'tensorrt-gpu', fallback_used: false, cuda_graph: true,
+      build: { version: '0.2.0', revision: 'demo' },
+      environment: { backend_version: '11.2.1', device: 'NVIDIA RTX 6000 Ada', compute_capability: '8.9', cuda_runtime: '13.1', cuda_driver: '13.1', device_memory_bytes: 51527024640 },
       samples: 2000, input_size: 512, batch_size: 1,
       latency_us: {
         end_to_end: { mean: 8.4, min: 7.6, p50: 8.1, p90: 9.0, p95: 9.3, p99: 10.2, max: 15.8, stddev: 0.8 },
@@ -186,6 +189,10 @@
         ? (validation.passed ? `pass (${validation.compared_elements} elements)` : `FAIL (${validation.mismatches} mismatches)`)
         : 'not requested';
       document.getElementById('validation').classList.toggle('danger', Boolean(validation && !validation.passed));
+      const environment = data.environment || {};
+      document.getElementById('device').textContent = environment.device
+        ? `${environment.device} / CC ${environment.compute_capability || '?'}`
+        : 'not reported';
       if (validation && !validation.passed) {
         document.getElementById('diagnosisTitle').textContent = 'Output correctness failed';
         document.getElementById('diagnosisText').textContent = `Latency is not deployable evidence: ${validation.mismatches} output elements missed tolerance.`;

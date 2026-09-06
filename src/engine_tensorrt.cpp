@@ -3,6 +3,7 @@
 #include "marketdata_infer/tensorrt_engine.h"
 
 #include <NvOnnxParser.h>
+#include <NvInferVersion.h>
 
 #include <cstring>
 #include <fstream>
@@ -11,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,6 +44,15 @@ bool cuda_ok(cudaError_t status, const char* operation) {
   }
   std::cerr << operation << " failed: " << cudaGetErrorString(status) << '\n';
   return false;
+}
+
+std::string cuda_version_string(int version) {
+  if (version <= 0) {
+    return {};
+  }
+  std::ostringstream out;
+  out << (version / 1000) << '.' << ((version % 1000) / 10);
+  return out.str();
 }
 
 template <typename T>
@@ -112,6 +123,7 @@ void TensorRTInferenceEngine::destroyResources() {
   input_name_.clear();
   output_name_.clear();
   last_device_latency_us_.reset();
+  runtime_metadata_ = {};
 }
 
 bool TensorRTInferenceEngine::initializeExecution() {
@@ -179,6 +191,30 @@ bool TensorRTInferenceEngine::initializeExecution() {
       !context_->setTensorAddress(output_name_.c_str(), output_device_)) {
     std::cerr << "Could not bind TensorRT tensor addresses\n";
     return false;
+  }
+
+  runtime_metadata_.backend_version =
+      std::to_string(NV_TENSORRT_MAJOR) + "." +
+      std::to_string(NV_TENSORRT_MINOR) + "." +
+      std::to_string(NV_TENSORRT_PATCH);
+  int cuda_runtime_version = 0;
+  int cuda_driver_version = 0;
+  if (cudaRuntimeGetVersion(&cuda_runtime_version) == cudaSuccess) {
+    runtime_metadata_.cuda_runtime_version = cuda_version_string(cuda_runtime_version);
+  }
+  if (cudaDriverGetVersion(&cuda_driver_version) == cudaSuccess) {
+    runtime_metadata_.cuda_driver_version = cuda_version_string(cuda_driver_version);
+  }
+  int device_ordinal = 0;
+  cudaDeviceProp device_properties{};
+  if (cudaGetDevice(&device_ordinal) == cudaSuccess &&
+      cudaGetDeviceProperties(&device_properties, device_ordinal) == cudaSuccess) {
+    runtime_metadata_.device_name = device_properties.name;
+    runtime_metadata_.compute_capability =
+        std::to_string(device_properties.major) + "." +
+        std::to_string(device_properties.minor);
+    runtime_metadata_.device_memory_bytes =
+        static_cast<uint64_t>(device_properties.totalGlobalMem);
   }
   return true;
 }
@@ -382,6 +418,10 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
 
 bool TensorRTInferenceEngine::cuda_graph_enabled() const {
   return graph_execution_ != nullptr;
+}
+
+RuntimeMetadata TensorRTInferenceEngine::runtime_metadata() const {
+  return runtime_metadata_;
 }
 
 } // namespace mdedge
