@@ -1,23 +1,28 @@
 apiVersion: 1
-
 datasources:
-  - name: VictoriaMetrics
-    uid: victoriametrics
-    type: prometheus
-    access: proxy
-    url: http://victoriametrics:8428
-    isDefault: true
-    editable: false
-    jsonData:
-      httpMethod: POST
-      timeInterval: 5s
-
-  - name: Prometheus Live
-    uid: prometheus-live
-    type: prometheus
-    access: proxy
-    url: http://prometheus:9090
-    editable: false
-    jsonData:
-      httpMethod: POST
-      timeInterval: 5s
+- name: VictoriaMetrics
+  uid: victoriametrics
+  type: prometheus
+  access: proxy
+  url: http://victoriametrics:8428
+  isDefault: true
+  editable: false
+  jsonData:
+    httpMethod: POST
+    timeInterval: 5s
+- name: Prometheus Live
+  uid: prometheus-live
+  type: prometheus
+  access: proxy
+  url: http://prometheus:9090
+  editable: false
+  jsonData:
+    httpMethod: POST
+    timeInterval: 5s
+- name: Alertmanager
+  uid: alertmanager
+  type: alertmanager
+  access: proxy
+  url: http://alertmanager:9093
+  jsonData:
+    implementation: prometheus

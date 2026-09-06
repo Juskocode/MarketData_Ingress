@@ -1,0 +1,24 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: local-observability
+  group_by:
+    - alertname
+    - job
+    - instance
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+inhibit_rules:
+  - source_matchers:
+      - alertname="MarketDataExporterDown"
+    target_matchers:
+      - alertname=~"MarketDataSnapshotLoadFailed|MarketDataMetricsStale"
+    equal:
+      - job
+      - instance
+
+receivers:
+  - name: local-observability

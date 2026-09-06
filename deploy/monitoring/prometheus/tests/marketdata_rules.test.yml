@@ -1,0 +1,123 @@
+rule_files:
+  - marketdata-rules.normalized.yml
+
+evaluation_interval: 5s
+
+tests:
+  - name: every production alert reaches firing state
+    interval: 5s
+    input_series:
+      - series: 'up{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_exporter_last_load_success{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_metrics_file_timestamp_seconds{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_inference_slo_configured{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_slo_pass{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_inference_fallback_used{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_validation_enabled{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_validation_pass{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_inference_cuda_graph_enabled{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_build_info{job="marketdata_edge",instance="edge-under-test:9108",backend="tensorrt-fp16"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MarketDataExporterDown
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataSnapshotLoadFailed
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataMetricsStale
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataDeviceP99SloBreach
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataMockFallbackUsed
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataIdentityValidationFailed
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+      - eval_time: 10m
+        alertname: MarketDataCudaGraphDisabled
+        exp_alerts:
+          - exp_labels: {}
+            exp_annotations: {}
+
+  - name: healthy state recovers every production alert
+    interval: 5s
+    input_series:
+      - series: 'up{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_exporter_last_load_success{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_metrics_file_timestamp_seconds{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0+5x120'
+      - series: 'marketdata_inference_slo_configured{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_slo_pass{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_fallback_used{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_inference_validation_enabled{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_validation_pass{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_inference_cuda_graph_enabled{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '1x120'
+      - series: 'marketdata_build_info{job="marketdata_edge",instance="edge-under-test:9108",backend="tensorrt-fp16"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MarketDataExporterDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataSnapshotLoadFailed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataMetricsStale
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataDeviceP99SloBreach
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataMockFallbackUsed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataIdentityValidationFailed
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: MarketDataCudaGraphDisabled
+        exp_alerts: []
+
+  - name: mock backend never pages for CUDA Graph
+    interval: 5s
+    input_series:
+      - series: 'marketdata_inference_cuda_graph_enabled{job="marketdata_edge",instance="edge-under-test:9108"}'
+        values: '0x120'
+      - series: 'marketdata_build_info{job="marketdata_edge",instance="edge-under-test:9108",backend="mock-cpp-cpu"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MarketDataCudaGraphDisabled
+        exp_alerts: []

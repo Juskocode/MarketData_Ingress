@@ -154,6 +154,7 @@ if [[ $firing_alerts -ne 0 ]]; then
   exit 1
 fi
 
+"$(dirname "$0")/alerting_test.sh" --runtime "${1:-build}"
 echo "[monitoring-stack] pass"
 echo "Prometheus exporter up: $scrape_value"
 echo "VictoriaMetrics series: $vm_series"

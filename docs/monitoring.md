@@ -186,3 +186,27 @@ docker run --rm \
   prom/prometheus:v3.14.0 \
   promtool check config /etc/prometheus/prometheus.yml
 ```
+
+## Alert trust and routing
+
+Alertmanager is pinned and provisioned at `http://localhost:9093`. Prometheus discovers it by service name, sends firing alerts to it, scrapes Alertmanager's own health metrics, and remote-writes those metrics to VictoriaMetrics. Grafana exposes both active alert count and routing-pipeline health, plus a direct Alertmanager link.
+
+The default receiver intentionally has no external integration. This makes grouping, inhibition, silencing, and routing locally testable without falsely claiming that Slack, PagerDuty, email, or another paging destination received a notification. Add an explicit receiver only after its credentials and a real test notification can be verified.
+
+`MarketDataExporterDown` inhibits snapshot-load and staleness alerts for the same `job` and `instance`, preventing one exporter outage from producing three pages.
+
+Run the deterministic alert suite directly:
+
+```bash
+./scripts/alerting_test.sh
+```
+
+The suite validates the production rule file with `promtool`, validates Alertmanager with `amtool`, derives a label-neutral fixture from the production alert expressions and hold durations, then proves all seven failure and recovery states. The full stack test adds these runtime gates:
+
+- Prometheus reports Alertmanager as an active target.
+- Prometheus successfully scrapes Alertmanager.
+- VictoriaMetrics receives that health series through remote write.
+- Grafana provisions the Alertmanager datasource and at least 12 dashboard panels.
+- Alertmanager's readiness and v2 status APIs respond successfully.
+
+Runtime evidence is written to `<build-dir>/monitoring-evidence/alertmanager.txt`.
