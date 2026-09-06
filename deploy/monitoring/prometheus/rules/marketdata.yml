@@ -1,0 +1,81 @@
+groups:
+  - name: marketdata-edge-recording
+    interval: 5s
+    rules:
+      - record: marketdata:device_p99_us
+        expr: max by (job, instance) (marketdata_inference_latency_us{scope="device_compute",quantile="0.99"})
+
+      - record: marketdata:e2e_p99_us
+        expr: max by (job, instance) (marketdata_inference_latency_us{scope="end_to_end",quantile="0.99"})
+
+      - record: marketdata:host_overhead_p99_us
+        expr: clamp_min(marketdata:e2e_p99_us - marketdata:device_p99_us, 0)
+
+      - record: marketdata:metrics_age_seconds
+        expr: time() - marketdata_metrics_file_timestamp_seconds
+
+  - name: marketdata-edge-alerts
+    interval: 5s
+    rules:
+      - alert: MarketDataExporterDown
+        expr: up{job="marketdata_edge"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: MarketData metrics exporter is unreachable
+          description: Prometheus has failed to scrape {{ $labels.instance }} for 30 seconds.
+
+      - alert: MarketDataSnapshotLoadFailed
+        expr: marketdata_exporter_last_load_success == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: Latest benchmark snapshot cannot be loaded
+          description: The exporter is alive but the schema-v2 metrics file is missing or invalid.
+
+      - alert: MarketDataMetricsStale
+        expr: marketdata:metrics_age_seconds > 120
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: MarketData inference metrics are stale
+          description: The latest valid benchmark snapshot is {{ $value | humanizeDuration }} old.
+
+      - alert: MarketDataDeviceP99SloBreach
+        expr: marketdata_inference_slo_configured == 1 and marketdata_inference_slo_pass == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: TensorRT device p99 latency SLO failed
+          description: The latest inference benchmark failed its configured p99 objective.
+
+      - alert: MarketDataMockFallbackUsed
+        expr: marketdata_inference_fallback_used == 1
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Mock inference fallback is active
+          description: TensorRT results are unavailable and must not be treated as production evidence.
+
+      - alert: MarketDataIdentityValidationFailed
+        expr: marketdata_inference_validation_enabled == 1 and marketdata_inference_validation_pass == 0
+        for: 5s
+        labels:
+          severity: critical
+        annotations:
+          summary: Inference output validation failed
+          description: The latest benchmark produced output outside the configured correctness tolerance.
+
+      - alert: MarketDataCudaGraphDisabled
+        expr: marketdata_inference_cuda_graph_enabled == 0 and on (job, instance) marketdata_build_info{backend=~"tensorrt.*"} == 1
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: TensorRT benchmark is not using CUDA Graph replay
+          description: Launch overhead may prevent the end-to-end path from meeting a tight latency target.

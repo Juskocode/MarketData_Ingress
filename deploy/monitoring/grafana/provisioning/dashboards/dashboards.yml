@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: MarketData Edge
+    orgId: 1
+    folder: MarketData Edge
+    folderUid: marketdata-edge
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,69 @@
+name: Monitoring Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "CMakeLists.txt"
+      - "tools/metrics_exporter.cpp"
+      - "scripts/monitoring_*.sh"
+      - "scripts/run_monitored_benchmark.sh"
+      - "deploy/monitoring/**"
+      - ".github/workflows/monitoring.yml"
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "tools/metrics_exporter.cpp"
+      - "scripts/monitoring_*.sh"
+      - "scripts/run_monitored_benchmark.sh"
+      - "deploy/monitoring/**"
+      - ".github/workflows/monitoring.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitoring-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Prometheus to VictoriaMetrics to Grafana
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ruby curl
+
+      - name: Configure monitoring build
+        run: |
+          cmake \
+            -S . \
+            -B build-monitoring \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMD_REQUIRE_TENSORRT=OFF
+
+      - name: Build C++ exporter and benchmark
+        run: cmake --build build-monitoring --parallel
+
+      - name: Run exporter tests
+        run: ctest --test-dir build-monitoring --output-on-failure -R 'metrics_exporter|monitoring'
+
+      - name: Run complete monitoring stack
+        run: ./scripts/monitoring_stack_test.sh build-monitoring
+
+      - name: Upload monitoring evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: monitoring-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build-monitoring/monitoring-stack-evidence/
+          if-no-files-found: error
+          retention-days: 14

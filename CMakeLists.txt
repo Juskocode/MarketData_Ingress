@@ -196,4 +196,33 @@ add_test(
           ${CMAKE_CURRENT_BINARY_DIR}/metrics-regression-smoke
 )
 
+add_executable(marketdata_metrics_exporter tools/metrics_exporter.cpp)
+target_compile_features(marketdata_metrics_exporter PRIVATE cxx_std_17)
+
+if(MSVC)
+  target_compile_options(marketdata_metrics_exporter PRIVATE /W4)
+else()
+  target_compile_options(marketdata_metrics_exporter PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+install(TARGETS marketdata_metrics_exporter RUNTIME DESTINATION bin)
+install(
+  DIRECTORY deploy/monitoring/
+  DESTINATION share/marketdata-ingress/monitoring
+)
+
+add_test(
+  NAME metrics_exporter_self_test
+  COMMAND marketdata_metrics_exporter --self-test
+)
+
+add_test(
+  NAME cli_monitoring_smoke
+  COMMAND bash
+          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/monitoring_smoke.sh
+          $<TARGET_FILE:marketdata_ingress>
+          $<TARGET_FILE:marketdata_metrics_exporter>
+          ${CMAKE_CURRENT_BINARY_DIR}/monitoring-smoke
+)
+
 include(CPack)

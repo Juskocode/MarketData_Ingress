@@ -1,0 +1,202 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(240, 90, 40, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "TensorRT edge inference latency, correctness, SLO, and exporter health backed by VictoriaMetrics.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"icon": "external link", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": true, "title": "Prometheus", "type": "link", "url": "http://localhost:9090"},
+    {"icon": "external link", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": true, "title": "VictoriaMetrics", "type": "link", "url": "http://localhost:8428/vmui"}
+  ],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "The exact backend, device, build version, and revision producing the displayed evidence.",
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "orange"}, "noValue": "NO RUNTIME"}, "overrides": []},
+      "gridPos": {"h": 3, "w": 24, "x": 0, "y": 0},
+      "id": 10,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "name", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata_build_info{instance=~\"$instance\"}", "instant": true, "legendFormat": "{{backend}} · {{device}} · v{{version}} @ {{revision}}", "range": false, "refId": "A"}],
+      "title": "ACTIVE RUNTIME",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "GPU execution p99 from CUDA events, excluding host transfer and scheduling overhead.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "decimals": 3,
+          "noValue": "NO GPU DATA",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.8}, {"color": "red", "value": 1}]},
+          "unit": "µs"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 3},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "inverted", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": true, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata:device_p99_us{instance=~\"$instance\"}", "legendFormat": "device p99", "range": true, "refId": "A"}],
+      "title": "DEVICE P99",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "Full application-visible path including copies, enqueue, synchronization, and host scheduling.",
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "decimals": 2, "unit": "µs"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 3},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "inverted", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": true, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata:e2e_p99_us{instance=~\"$instance\"}", "legendFormat": "end-to-end p99", "range": true, "refId": "A"}],
+      "title": "END-TO-END P99",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "Result of the explicit latency policy embedded in the latest benchmark.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [{"options": {"0": {"color": "red", "index": 1, "text": "FAIL"}, "1": {"color": "green", "index": 0, "text": "PASS"}}, "type": "value"}],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 3},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "value_and_name", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata_inference_slo_pass{instance=~\"$instance\"}", "legendFormat": "latency SLO", "range": true, "refId": "A"}],
+      "title": "SLO VERDICT",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "Age of the metrics file loaded by the exporter.",
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 60}, {"color": "red", "value": 120}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 3},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata:metrics_age_seconds{instance=~\"$instance\"}", "legendFormat": "snapshot age", "range": true, "refId": "A"}],
+      "title": "EVIDENCE FRESHNESS",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 12, "gradientMode": "opacity", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "showValues": false, "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "line"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "unit": "µs"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 5,
+      "options": {"legend": {"calcs": ["lastNotNull", "max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "pluginVersion": "13.2.1",
+      "targets": [
+        {"editorMode": "code", "expr": "marketdata_inference_latency_us{instance=~\"$instance\",scope=\"device_compute\",quantile=~\"0.5|0.95|0.99\"}", "legendFormat": "p{{quantile}}", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "marketdata_inference_slo_target_us{instance=~\"$instance\",scope=\"device_compute\"}", "legendFormat": "SLO", "range": true, "refId": "B"}
+      ],
+      "title": "GPU COMPUTE QUANTILES",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "opacity", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "showValues": false, "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "unit": "µs"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 6,
+      "options": {"legend": {"calcs": ["lastNotNull", "max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata_inference_latency_us{instance=~\"$instance\",scope=\"end_to_end\",quantile=~\"0.5|0.95|0.99\"}", "legendFormat": "p{{quantile}}", "range": true, "refId": "A"}],
+      "title": "FULL PATH QUANTILES",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "description": "p99 time outside GPU execution. Large values indicate copies, launch, synchronization, or host scheduling pressure.",
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "custom": {"axisBorderShow": false, "axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 24, "gradientMode": "hue", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "showValues": false, "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "unit": "µs"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 16},
+      "id": 7,
+      "options": {"legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}},
+      "pluginVersion": "13.2.1",
+      "targets": [{"editorMode": "code", "expr": "marketdata:host_overhead_p99_us{instance=~\"$instance\"}", "legendFormat": "host overhead", "range": true, "refId": "A"}],
+      "title": "HOST OVERHEAD P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-BlYlRd"}, "custom": {"axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 16, "gradientMode": "opacity", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "insertNulls": false, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 4, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "showValues": false, "spanNulls": false, "stacking": {"group": "A", "mode": "none"}, "thresholdsStyle": {"mode": "off"}}, "unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 16},
+      "id": 8,
+      "options": {"legend": {"calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "pluginVersion": "13.2.1",
+      "targets": [
+        {"editorMode": "code", "expr": "marketdata_inference_throughput_inferences_per_second{instance=~\"$instance\"}", "legendFormat": "inferences / s", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "marketdata_inference_throughput_samples_per_second{instance=~\"$instance\"}", "legendFormat": "samples / s", "range": true, "refId": "B"}
+      ],
+      "title": "THROUGHPUT",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "thresholds"}, "mappings": [{"options": {"0": {"color": "red", "index": 1, "text": "NO"}, "1": {"color": "green", "index": 0, "text": "YES"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "unit": "short"},
+        "overrides": [{"matcher": {"id": "byName", "options": "Fallback used"}, "properties": [{"id": "mappings", "value": [{"options": {"0": {"color": "green", "index": 0, "text": "NO"}, "1": {"color": "red", "index": 1, "text": "YES"}}, "type": "value"}]}]}]
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 16},
+      "id": 9,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "value_and_name", "wideLayout": true},
+      "pluginVersion": "13.2.1",
+      "targets": [
+        {"editorMode": "code", "expr": "marketdata_inference_cuda_graph_enabled{instance=~\"$instance\"}", "legendFormat": "CUDA Graph", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "marketdata_inference_validation_pass{instance=~\"$instance\"}", "legendFormat": "Validation", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "marketdata_inference_fallback_used{instance=~\"$instance\"}", "legendFormat": "Fallback used", "range": true, "refId": "C"},
+        {"editorMode": "code", "expr": "marketdata_exporter_last_load_success{instance=~\"$instance\"}", "legendFormat": "Snapshot loaded", "range": true, "refId": "D"}
+      ],
+      "title": "EXECUTION INTEGRITY",
+      "type": "stat"
+    }
+  ],
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["marketdata", "tensorrt", "edge", "victoriametrics"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {"text": "All", "value": "$__all"},
+        "datasource": {"type": "prometheus", "uid": "victoriametrics"},
+        "definition": "label_values(marketdata_build_info, instance)",
+        "includeAll": true,
+        "label": "Exporter instance",
+        "name": "instance",
+        "options": [],
+        "query": {"query": "label_values(marketdata_build_info, instance)", "refId": "StandardVariableQuery"},
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-30m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MarketData Edge Pulse",
+  "uid": "marketdata-edge-pulse",
+  "version": 1
+}
