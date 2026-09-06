@@ -171,4 +171,20 @@ set(CPACK_PACKAGE_FILE_NAME
   "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}"
 )
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+add_executable(marketdata_metrics_compare tools/metrics_compare.cpp)
+target_compile_features(marketdata_metrics_compare PRIVATE cxx_std_17)
+
+if(MSVC)
+  target_compile_options(marketdata_metrics_compare PRIVATE /W4)
+else()
+  target_compile_options(marketdata_metrics_compare PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+install(TARGETS marketdata_metrics_compare RUNTIME DESTINATION bin)
+
+add_test(
+  NAME metrics_compare_self_test
+  COMMAND marketdata_metrics_compare --self-test
+)
+
 include(CPack)
