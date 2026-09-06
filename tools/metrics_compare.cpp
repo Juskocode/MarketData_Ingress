@@ -1,5 +1,6 @@
 #include <cerrno>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
