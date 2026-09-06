@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
   try {
     for (int i = 1; i < argc; ++i) {
       const std::string arg = argv[i];
-      auto require_value = [&](const std::string& flag) {
+      auto require_value = [&](const std::string& flag) -> std::string {
         if (i + 1 >= argc) {
           throw std::runtime_error("Missing value for " + flag);
         }

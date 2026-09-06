@@ -7,6 +7,7 @@ namespace mdedge {
 
 bool MockInferenceEngine::load(const std::string& model_path) {
   (void)model_path;
+  input_elements_ = 0;
   return true;
 }
 
