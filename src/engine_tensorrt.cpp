@@ -370,8 +370,8 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
     return false;
   }
 
-  const cudaError_t instantiate_status = cudaGraphInstantiate(
-      &graph_execution_, captured_graph, nullptr, nullptr, 0);
+  const cudaError_t instantiate_status = cudaGraphInstantiateWithFlags(
+      &graph_execution_, captured_graph, 0ULL);
   cudaGraphDestroy(captured_graph);
   if (!cuda_ok(instantiate_status, "cudaGraphInstantiate")) {
     graph_execution_ = nullptr;
