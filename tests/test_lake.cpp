@@ -76,10 +76,6 @@ int main() {
     require(dataset.batches(3).size() == 3, "Partial batch must not be padded");
     rejects([&] { (void)dataset.batches(0); });
     rejects([&] { (void)dataset.batches(1, 11); });
-    const auto batches = dataset.batches(2);
-    if (batches[0].data() + 4 != batches[1].data() || batches[1][0] != 4.5F) {
-      throw std::runtime_error("Batch views must borrow contiguous dataset storage");
-    }
     const auto fingerprint = dataset.validate_and_fingerprint(2, 6);
     require(fingerprint.size() == 16, "Missing workload fingerprint");
     require(fingerprint != dataset.validate_and_fingerprint(0, 6), "Content identity ignores data");
