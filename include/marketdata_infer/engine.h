@@ -28,6 +28,8 @@ struct RunOptions {
   size_t warmup = 20;
   double target_latency_us = 0.0;
   std::string metrics_path;
+  std::string input_file;
+  size_t input_row_offset = 0;
   BackendHint backend = BackendHint::Auto;
   LatencyScope target_scope = LatencyScope::EndToEnd;
   bool allow_mock_fallback = false;
@@ -76,6 +78,10 @@ struct InferenceStats {
   double throughput_samples_per_second = 0.0;
   size_t input_elements_per_batch = 0;
   std::string backend;
+  std::string input_source = "synthetic-v1";
+  std::string input_storage = "generated";
+  std::string input_fingerprint = "synthetic-v1";
+  size_t dataset_rows = 0;
 };
 
 class InferenceEngine {

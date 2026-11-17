@@ -75,6 +75,10 @@ Use `--target-scope device` to gate TensorRT kernel execution measured with CUDA
 
 The runner intentionally supports one fixed-shape FP32 input and one fixed-shape FP32 output. This keeps the latency contract unambiguous. Build separate serialized engines for different shapes.
 
+## Replay real lake features
+
+Parquet snapshots from local files or Arrow-supported cloud filesystems can be prepared into bounded FP32 datasets and replayed with `--input-file`. Native C++23 ranges expose mapped batches without per-request tensor allocation; metrics record the selected workload fingerprint. See [data-lake replay](docs/lake-replay.md) for feature schema, filtering, timing boundaries and integration tests.
+
 ## Backend policy
 
 - `--model mock` with `--backend auto` selects the mock backend.

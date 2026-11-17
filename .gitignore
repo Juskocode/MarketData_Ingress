@@ -5,3 +5,7 @@ out/
 *.swo
 metrics.json
 *.log
+__pycache__/
+*.pyc
+*.mdlake
+*.mdlake.json

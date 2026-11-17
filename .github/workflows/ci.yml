@@ -83,3 +83,25 @@ jobs:
         run: >-
           ! grep -R --line-number --include='*.cpp' --include='*.h'
           -E 'Python\.h|pybind11|PyObject' src include
+
+  lake-replay:
+    name: Parquet snapshot and native replay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build g++ python3-venv
+      - name: Install offline preparation dependencies
+        run: |
+          python3 -m venv build-lake-venv
+          build-lake-venv/bin/python -m pip install -r tools/lake/requirements.txt
+      - name: Configure C++23 replay tests
+        run: >-
+          cmake -S . -B build-lake -G Ninja
+          -DCMAKE_BUILD_TYPE=Release -DMD_WITH_TENSORRT=OFF
+          -DMD_BUILD_TESTS=ON -DMD_BUILD_LAKE_TESTS=ON
+          -DPython3_EXECUTABLE="$PWD/build-lake-venv/bin/python"
+      - name: Build and test Parquet to native replay
+        run: |
+          cmake --build build-lake --parallel 2
+          ctest --test-dir build-lake --output-on-failure

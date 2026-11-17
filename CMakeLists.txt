@@ -13,6 +13,7 @@ endif()
 option(MD_WITH_TENSORRT "Build the TensorRT backend when TensorRT 10+ is available" ON)
 option(MD_REQUIRE_TENSORRT "Fail configuration unless TensorRT 10+ is available" OFF)
 option(MD_BUILD_TESTS "Build automated tests" ON)
+option(MD_BUILD_LAKE_TESTS "Test Parquet preparation (requires Python, Arrow and NumPy)" OFF)
 option(MD_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -116,6 +117,7 @@ target_link_libraries(inference_backend PUBLIC md_project_options)
 
 add_library(core_objects OBJECT
   src/benchmark.cpp
+  src/lake_dataset.cpp
   src/engine_factory.cpp
 )
 target_include_directories(core_objects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -140,6 +142,7 @@ if(MD_BUILD_TESTS)
   add_executable(marketdata_tests
     tests/test_smoke.cpp
     src/benchmark.cpp
+    src/lake_dataset.cpp
     src/engine_factory.cpp
     src/engine_mock.cpp
   )
@@ -159,6 +162,15 @@ if(MD_BUILD_TESTS)
   endif()
 
   add_test(NAME unit_metrics COMMAND marketdata_tests)
+  add_executable(marketdata_lake_tests tests/test_lake.cpp)
+  target_link_libraries(marketdata_lake_tests PRIVATE core_objects inference_backend md_project_options)
+  add_test(NAME unit_lake_replay COMMAND marketdata_lake_tests)
+  if(MD_BUILD_LAKE_TESTS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME parquet_lake_integration COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_lake_prepare.py
+      $<TARGET_FILE:marketdata_ingress> $<TARGET_FILE:marketdata_metrics_compare>)
+  endif()
   add_test(NAME cli_help COMMAND marketdata_ingress --help)
   add_test(NAME cli_mock_benchmark COMMAND marketdata_ingress
     --backend mock --model mock --iterations 16 --warmup 4 --target-us 10000
@@ -170,6 +182,8 @@ if(HAVE_TENSORRT)
   install(TARGETS marketdata_build_engine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(FILES tools/lake/prepare.py tools/lake/requirements.txt
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/lake)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(DIRECTORY tools/visualization/
   DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/dashboard

@@ -1,4 +1,5 @@
 #include "marketdata_infer/engine.h"
+#include "marketdata_infer/lake_dataset.h"
 
 #include <algorithm>
 #include <chrono>
@@ -130,8 +131,28 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   } else if (input.size() != total_input) {
     throw std::runtime_error("Engine staging input does not match its declared shape");
   }
-  std::ranges::transform(std::views::iota(size_t{0}, total_input), input.begin(),
-      [](size_t i) { return static_cast<float>(i % 97U) / 97.0F; });
+  std::unique_ptr<LakeDataset> dataset;
+  std::string fingerprint = "synthetic-v1";
+  if (!opts.input_file.empty()) {
+    dataset = std::make_unique<LakeDataset>(opts.input_file);
+    if (dataset->features() != opts.input_size || opts.input_row_offset > dataset->rows() ||
+        opts.iterations > (dataset->rows() - opts.input_row_offset) / opts.batch_size) {
+      throw std::runtime_error("Replay shape/range mismatch: match --input-size to features and "
+                               "provide --iterations complete batches after --input-row-offset");
+    }
+    fingerprint = dataset->validate_and_fingerprint(opts.input_row_offset,
+                                                   opts.iterations * opts.batch_size);
+  } else {
+    if (opts.input_row_offset != 0) {
+      throw std::runtime_error("Replay offset requires --input-file");
+    }
+    std::ranges::transform(std::views::iota(size_t{0}, total_input), input.begin(),
+        [](size_t i) { return static_cast<float>(i % 97U) / 97.0F; });
+  }
+  const auto request_input = [&](size_t iteration) -> std::span<const float> {
+    if (dataset) return dataset->batches(opts.batch_size, opts.input_row_offset)[iteration];
+    return input;
+  };
   const size_t declared_output_elements = engine.output_elements_per_batch();
   const size_t output_capacity = declared_output_elements == 0
       ? total_input
@@ -157,7 +178,7 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   }
 
   for (size_t i = 0; i < opts.warmup; ++i) {
-    if (!engine.infer(input, output)) {
+    if (!engine.infer(request_input(i % opts.iterations), output)) {
       throw std::runtime_error("Warmup inference failed");
     }
   }
@@ -169,8 +190,9 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   OutputValidation validation;
 
   for (size_t i = 0; i < opts.iterations; ++i) {
+    const auto current_input = request_input(i);
     const auto start = std::chrono::steady_clock::now();
-    const auto result = engine.infer(input, output);
+    const auto result = engine.infer(current_input, output);
     if (!result) {
       throw std::runtime_error("Inference failed during benchmark");
     }
@@ -185,12 +207,12 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
     }
     // Correctness work is outside the timed inference boundary, on every result.
     if (opts.verify_identity) {
-      const size_t compared = std::min(input.size(), result->size());
+      const size_t compared = std::min(current_input.size(), result->size());
       validation.compared_elements += compared;
-      validation.mismatches += input.size() > result->size()
-          ? input.size() - result->size() : result->size() - input.size();
+      validation.mismatches += current_input.size() > result->size()
+          ? current_input.size() - result->size() : result->size() - current_input.size();
       for (const auto index : std::views::iota(size_t{0}, compared)) {
-        const double error = std::abs(static_cast<double>((*result)[index]) - input[index]);
+        const double error = std::abs(static_cast<double>((*result)[index]) - current_input[index]);
         if (!std::isfinite(error)) {
           ++validation.mismatches;
         } else {
@@ -229,6 +251,12 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   stats.backend = engine.backend_name();
   stats.cuda_graph = engine.cuda_graph_enabled();
   stats.runtime = engine.runtime_metadata();
+  stats.input_fingerprint = fingerprint;
+  if (dataset) {
+    stats.input_source = "lake-f32-v1";
+    stats.input_storage = dataset->storage_kind();
+    stats.dataset_rows = dataset->rows();
+  }
   return stats;
 }
 
@@ -255,6 +283,13 @@ std::string format_metrics_json(const RunOptions& options, const InferenceStats&
       << "  \"requested_backend\": \"" << escape_json(options.requested_backend) << "\",\n"
       << "  \"fallback_used\": " << (options.fallback_used ? "true" : "false") << ",\n"
       << "  \"cuda_graph\": " << (stats.cuda_graph ? "true" : "false") << ",\n"
+      << "  \"input\": {\n"
+      << "    \"source\": \"" << escape_json(stats.input_source) << "\",\n"
+      << "    \"storage\": \"" << escape_json(stats.input_storage) << "\",\n"
+      << "    \"fingerprint\": \"" << escape_json(stats.input_fingerprint) << "\",\n"
+      << "    \"dataset_rows\": " << stats.dataset_rows << ",\n"
+      << "    \"row_offset\": " << options.input_row_offset << "\n"
+      << "  },\n"
       << "  \"environment\": {\n"
       << "    \"backend_version\": ";
   if (stats.runtime.backend_version.empty()) {

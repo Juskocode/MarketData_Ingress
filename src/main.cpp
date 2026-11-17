@@ -24,6 +24,8 @@ void print_help(const char* exe) {
             << "  --input-size <N>             Elements per sample (default: 512)\n"
             << "  --iterations <N>             Measured iterations (default: 200)\n"
             << "  --warmup <N>                 Warmup iterations (default: 20)\n"
+            << "  --input-file <path>          Replay a prepared lake FP32 dataset\n"
+            << "  --input-row-offset <N>       First replay row (default: 0)\n"
             << "  --json-out <path>            Write metrics JSON to file\n"
             << "  --target-us <us>             Fail when selected p99 exceeds this value\n"
             << "  --target-scope e2e|device    SLO metric (default: e2e)\n"
@@ -99,6 +101,11 @@ int main(int argc, char** argv) {
         options.warmup = parse_size(require_value(arg), arg, true);
       } else if (arg == "--json-out") {
         options.metrics_path = require_value(arg);
+      } else if (arg == "--input-file") {
+        options.input_file = require_value(arg);
+        if (options.input_file.empty()) throw std::runtime_error("--input-file must not be empty");
+      } else if (arg == "--input-row-offset") {
+        options.input_row_offset = parse_size(require_value(arg), arg, true);
       } else if (arg == "--target-us") {
         options.target_latency_us = parse_target(require_value(arg));
       } else if (arg == "--target-scope") {
