@@ -1,6 +1,7 @@
 #include "marketdata_infer/engine.h"
 
 #include <cmath>
+#include <charconv>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -32,13 +33,13 @@ void print_help(const char* exe) {
             << "  --help                       Show this help and exit\n";
 }
 size_t parse_size(const std::string& value, const std::string& flag, bool allow_zero) {
-  size_t consumed = 0;
-  const unsigned long long parsed = std::stoull(value, &consumed);
-  if (consumed != value.size() || (!allow_zero && parsed == 0) ||
-      parsed > std::numeric_limits<size_t>::max()) {
+  size_t parsed = 0;
+  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+  if (error != std::errc{} || end != value.data() + value.size() ||
+      (!allow_zero && parsed == 0)) {
     throw std::runtime_error("Invalid value for " + flag + ": " + value);
   }
-  return static_cast<size_t>(parsed);
+  return parsed;
 }
 
 double parse_target(const std::string& value) {

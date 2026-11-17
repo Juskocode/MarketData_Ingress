@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <numeric>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -42,7 +43,7 @@ LatencyDistribution summarize(std::vector<double> values) {
     return result;
   }
 
-  std::sort(values.begin(), values.end());
+  std::ranges::sort(values);
   result.samples = values.size();
   result.mean_us = std::accumulate(values.begin(), values.end(), 0.0) /
       static_cast<double>(values.size());
@@ -121,10 +122,16 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
     throw std::runtime_error("Input element count must exactly match the fixed TensorRT input shape");
   }
 
-  std::vector<float> input(total_input);
-  for (size_t i = 0; i < input.size(); ++i) {
-    input[i] = static_cast<float>(i % 97U) / 97.0F;
+  std::vector<float> owned_input;
+  auto input = engine.host_input_buffer();
+  if (input.empty()) {
+    owned_input.resize(total_input);
+    input = owned_input;
+  } else if (input.size() != total_input) {
+    throw std::runtime_error("Engine staging input does not match its declared shape");
   }
+  std::ranges::transform(std::views::iota(size_t{0}, total_input), input.begin(),
+      [](size_t i) { return static_cast<float>(i % 97U) / 97.0F; });
   const size_t declared_output_elements = engine.output_elements_per_batch();
   const size_t output_capacity = declared_output_elements == 0
       ? total_input
@@ -132,12 +139,25 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   if (output_capacity == 0) {
     throw std::runtime_error("Engine reported zero output capacity");
   }
-  std::vector<float> output(output_capacity);
-  size_t output_elements = 0;
+  std::vector<float> owned_output;
+  auto output = engine.host_output_buffer();
+  if (output.empty()) {
+    owned_output.resize(output_capacity);
+    output = owned_output;
+  } else if (output.size() < output_capacity) {
+    throw std::runtime_error("Engine staging output is smaller than its declared capacity");
+  }
+
+  if (!std::isfinite(opts.validation_tolerance) || opts.validation_tolerance < 0.0) {
+    throw std::runtime_error("Validation tolerance must be finite and non-negative");
+  }
+  if (opts.verify_identity && std::max(total_input, output_capacity) >
+      std::numeric_limits<size_t>::max() / opts.iterations) {
+    throw std::runtime_error("Validation element count overflows size_t");
+  }
 
   for (size_t i = 0; i < opts.warmup; ++i) {
-    if (!engine.infer_into(
-            input.data(), input.size(), output.data(), output.size(), output_elements)) {
+    if (!engine.infer(input, output)) {
       throw std::runtime_error("Warmup inference failed");
     }
   }
@@ -146,39 +166,52 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   std::vector<double> device_latencies;
   end_to_end_latencies.reserve(opts.iterations);
   device_latencies.reserve(opts.iterations);
+  OutputValidation validation;
 
   for (size_t i = 0; i < opts.iterations; ++i) {
     const auto start = std::chrono::steady_clock::now();
-    if (!engine.infer_into(
-            input.data(), input.size(), output.data(), output.size(), output_elements)) {
+    const auto result = engine.infer(input, output);
+    if (!result) {
       throw std::runtime_error("Inference failed during benchmark");
     }
     const auto end = std::chrono::steady_clock::now();
     end_to_end_latencies.push_back(
         std::chrono::duration<double, std::micro>(end - start).count());
     if (const auto device_latency = engine.last_device_latency_us()) {
+      if (!std::isfinite(*device_latency) || *device_latency < 0.0) {
+        throw std::runtime_error("Backend returned invalid device timing");
+      }
       device_latencies.push_back(*device_latency);
+    }
+    // Correctness work is outside the timed inference boundary, on every result.
+    if (opts.verify_identity) {
+      const size_t compared = std::min(input.size(), result->size());
+      validation.compared_elements += compared;
+      validation.mismatches += input.size() > result->size()
+          ? input.size() - result->size() : result->size() - input.size();
+      for (const auto index : std::views::iota(size_t{0}, compared)) {
+        const double error = std::abs(static_cast<double>((*result)[index]) - input[index]);
+        if (!std::isfinite(error)) {
+          ++validation.mismatches;
+        } else {
+          validation.max_abs_error = std::max(validation.max_abs_error, error);
+          if (error > opts.validation_tolerance) {
+            ++validation.mismatches;
+          }
+        }
+      }
     }
   }
 
   InferenceStats stats;
   stats.end_to_end = summarize(std::move(end_to_end_latencies));
   if (!device_latencies.empty()) {
+    if (device_latencies.size() != opts.iterations) {
+      throw std::runtime_error("Backend returned device timing for only part of the run");
+    }
     stats.device_compute = summarize(std::move(device_latencies));
   }
   if (opts.verify_identity) {
-    OutputValidation validation;
-    validation.compared_elements = std::min(input.size(), output_elements);
-    validation.mismatches = input.size() > output_elements
-        ? input.size() - output_elements
-        : output_elements - input.size();
-    for (size_t i = 0; i < validation.compared_elements; ++i) {
-      const double error = std::abs(static_cast<double>(output[i]) - static_cast<double>(input[i]));
-      validation.max_abs_error = std::max(validation.max_abs_error, error);
-      if (error > opts.validation_tolerance) {
-        ++validation.mismatches;
-      }
-    }
     validation.passed = validation.mismatches == 0;
     stats.validation = validation;
   }

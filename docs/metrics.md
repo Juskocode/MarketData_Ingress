@@ -89,3 +89,11 @@ The flat `mean_us`, `p99_us`, and related fields remain as end-to-end compatibil
 - Compare artifacts only when build revision, engine, GPU, TensorRT, CUDA, clocks, and power conditions are equivalent or intentionally changed.
 
 Use at least 200 warmups and 2,000 measured iterations for a hardware claim. Record GPU model, clocks, power mode, TensorRT/CUDA versions, engine hash, and thermal state next to the JSON artifact.
+
+## Borrowed buffers and validation
+
+The runner fills TensorRT's pinned input span directly and reads its pinned output span after stream synchronization. The pointer API remains available; callers supplying external buffers pay the necessary staging copies. Spans are invalidated by `load()` and engine destruction. A context is single-threaded.
+
+CUDA graph mode captures the fixed-address H2D/compute/events/D2H request. Compute event timestamps still exclude transfers. No host allocation or graph update occurs inside the measured loop.
+
+Identity validation runs on every measured result, outside the E2E interval. `compared_elements` and `mismatches` accumulate over the run. NaN/infinity fails validation; `max_abs_error` reports the maximum finite error so the JSON remains valid. Backend-reported output bounds and device timings are checked before use. Throughput uses the sum of inference durations, excluding validation, setup, warmup and statistics.

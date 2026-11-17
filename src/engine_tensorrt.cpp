@@ -169,6 +169,11 @@ bool TensorRTInferenceEngine::initializeExecution() {
     std::cerr << "Dynamic or invalid tensor shape detected; build a fixed-shape engine for this runner\n";
     return false;
   }
+  if (*input_elements > std::numeric_limits<size_t>::max() / sizeof(float) ||
+      *output_elements > std::numeric_limits<size_t>::max() / sizeof(float)) {
+    std::cerr << "Tensor byte size overflows size_t\n";
+    return false;
+  }
   input_bytes_ = *input_elements * sizeof(float);
   output_bytes_ = *output_elements * sizeof(float);
 
@@ -192,6 +197,7 @@ bool TensorRTInferenceEngine::initializeExecution() {
     std::cerr << "Could not bind TensorRT tensor addresses\n";
     return false;
   }
+  std::memset(input_host_, 0, input_bytes_);
 
   runtime_metadata_.backend_version =
       std::to_string(NV_TENSORRT_MAJOR) + "." +
@@ -322,7 +328,7 @@ bool TensorRTInferenceEngine::infer_into(
       !input_host_ || !output_host_ || !input || !output || input_elements == 0) {
     return false;
   }
-  if (input_elements * sizeof(float) != input_bytes_) {
+  if (input_elements != input_bytes_ / sizeof(float)) {
     std::cerr << "Input size mismatch: received " << input_elements
               << " FP32 elements, expected " << (input_bytes_ / sizeof(float)) << '\n';
     return false;
@@ -334,27 +340,18 @@ bool TensorRTInferenceEngine::infer_into(
     return false;
   }
 
-  std::memcpy(input_host_, input, input_bytes_);
-
-  if (!cuda_ok(cudaMemcpyAsync(
-          input_device_, input_host_, input_bytes_, cudaMemcpyHostToDevice, stream_),
-          "cudaMemcpyAsync(H2D)") ||
-      !cuda_ok(cudaEventRecord(device_start_, stream_), "cudaEventRecord(start)")) {
-    return false;
+  if (input != input_host_) {
+    std::memmove(input_host_, input, input_bytes_);
   }
+
   if (graph_execution_) {
     if (!cuda_ok(cudaGraphLaunch(graph_execution_, stream_), "cudaGraphLaunch")) {
       return false;
     }
-  } else if (!context_->enqueueV3(stream_)) {
-      std::cerr << "TensorRT enqueueV3 failed\n";
-      return false;
+  } else if (!enqueue_request()) {
+    return false;
   }
-  if (!cuda_ok(cudaEventRecord(device_stop_, stream_), "cudaEventRecord(stop)") ||
-      !cuda_ok(cudaMemcpyAsync(
-          output_host_, output_device_, output_bytes_, cudaMemcpyDeviceToHost, stream_),
-          "cudaMemcpyAsync(D2H)") ||
-      !cuda_ok(cudaStreamSynchronize(stream_), "cudaStreamSynchronize")) {
+  if (!cuda_ok(cudaStreamSynchronize(stream_), "cudaStreamSynchronize")) {
     return false;
   }
 
@@ -365,9 +362,36 @@ bool TensorRTInferenceEngine::infer_into(
     return false;
   }
   last_device_latency_us_ = static_cast<double>(elapsed_ms) * 1000.0;
-  std::memcpy(output, output_host_, output_bytes_);
+  if (output != output_host_) {
+    std::memmove(output, output_host_, output_bytes_);
+  }
   output_elements = expected_output_elements;
   return true;
+}
+
+bool TensorRTInferenceEngine::enqueue_request() {
+  if (!cuda_ok(cudaMemcpyAsync(
+          input_device_, input_host_, input_bytes_, cudaMemcpyHostToDevice, stream_),
+          "cudaMemcpyAsync(H2D)") ||
+      !cuda_ok(cudaEventRecord(device_start_, stream_), "cudaEventRecord(start)")) {
+    return false;
+  }
+  if (!context_->enqueueV3(stream_)) {
+    std::cerr << "TensorRT enqueueV3 failed\n";
+    return false;
+  }
+  return cuda_ok(cudaEventRecord(device_stop_, stream_), "cudaEventRecord(stop)") &&
+      cuda_ok(cudaMemcpyAsync(
+          output_host_, output_device_, output_bytes_, cudaMemcpyDeviceToHost, stream_),
+          "cudaMemcpyAsync(D2H)");
+}
+
+std::span<float> TensorRTInferenceEngine::host_input_buffer() {
+  return {static_cast<float*>(input_host_), input_bytes_ / sizeof(float)};
+}
+
+std::span<float> TensorRTInferenceEngine::host_output_buffer() {
+  return {static_cast<float*>(output_host_), output_bytes_ / sizeof(float)};
 }
 
 size_t TensorRTInferenceEngine::input_elements_per_batch() const {
@@ -394,7 +418,7 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
     return false;
   }
 
-  if (!context_->enqueueV3(stream_) ||
+  if (!enqueue_request() ||
       !cuda_ok(cudaStreamSynchronize(stream_), "CUDA graph priming synchronization")) {
     std::cerr << "Could not prime TensorRT context for CUDA graph capture\n";
     return false;
@@ -405,7 +429,9 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
           "cudaStreamBeginCapture")) {
     return false;
   }
-  const bool enqueue_succeeded = context_->enqueueV3(stream_);
+  // Fixed pinned/device addresses permit capture of the entire request. The
+  // timing events surround only enqueueV3, so GPU compute keeps its meaning.
+  const bool enqueue_succeeded = enqueue_request();
   cudaGraph_t captured_graph = nullptr;
   const cudaError_t capture_status = cudaStreamEndCapture(stream_, &captured_graph);
   if (!enqueue_succeeded || capture_status != cudaSuccess || !captured_graph) {

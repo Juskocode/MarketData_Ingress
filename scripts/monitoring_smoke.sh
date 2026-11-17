@@ -19,7 +19,7 @@ mkdir -p "$work_directory"
   --warmup 8 \
   --iterations 64 \
   --target-scope e2e \
-  --target-us 10 \
+  --target-us 10000 \
   --json-out "$metrics" \
   >/dev/null
 

@@ -37,6 +37,13 @@ if "${BIN}" --backend mock --iterations 8 --cuda-graph >/dev/null 2>&1; then
   exit 1
 fi
 
+for flag in --iterations --warmup --input-size --batch; do
+  if "${BIN}" --backend mock "$flag" -1 >/dev/null 2>&1; then
+    echo "Negative size unexpectedly succeeded: $flag" >&2
+    exit 1
+  fi
+done
+
 VALIDATION_METRICS="${BUILD_DIR}/marketdata_metrics_invalid_identity.json"
 if "${BIN}" --backend mock --iterations 8 --verify-identity --json-out "${VALIDATION_METRICS}" >/dev/null 2>&1; then
   echo "Incorrect identity output unexpectedly passed validation" >&2

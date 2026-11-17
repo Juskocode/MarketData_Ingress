@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 
 namespace mdedge {
@@ -87,6 +88,22 @@ public:
       float* output,
       size_t output_capacity,
       size_t& output_elements) = 0;
+
+  // The returned view borrows output. No ownership transfer or allocation.
+  [[nodiscard]] std::optional<std::span<const float>> infer(
+      std::span<const float> input, std::span<float> output) {
+    size_t written = 0;
+    if (!infer_into(input.data(), input.size(), output.data(), output.size(), written) ||
+        written == 0 || written > output.size()) {
+      return std::nullopt;
+    }
+    return output.first(written);
+  }
+
+  // Optional stable staging storage, valid until load() or engine destruction.
+  // A single engine/context must not be used concurrently.
+  virtual std::span<float> host_input_buffer() { return {}; }
+  virtual std::span<float> host_output_buffer() { return {}; }
   virtual size_t input_elements_per_batch() const = 0;
   virtual size_t output_elements_per_batch() const = 0;
   virtual const char* backend_name() const = 0;
