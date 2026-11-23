@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -22,8 +23,9 @@ void check(bool condition, const std::string& message) {
 class TimedTestEngine final : public mdedge::InferenceEngine {
 public:
   enum class Fault { None, Corrupt, FirstNaN, InvalidCount };
-  explicit TimedTestEngine(Fault fault = Fault::None, bool staging = false)
-      : fault_(fault), staging_(staging) {}
+  explicit TimedTestEngine(Fault fault = Fault::None, bool staging = false,
+                           std::span<const double> timings = {})
+      : fault_(fault), staging_(staging), timings_(timings) {}
 
   bool load(const std::string&) override { return true; }
 
@@ -54,7 +56,9 @@ public:
     if (staging_ && (input != input_.data() || output != output_.data())) {
       return false;
     }
-    device_latency_us_ += 0.05;
+    device_latency_us_ = timings_.empty()
+        ? device_latency_us_ + 0.05
+        : timings_[(calls_ - 1) % timings_.size()];
     return true;
   }
 
@@ -86,6 +90,7 @@ public:
 private:
   Fault fault_;
   bool staging_;
+  std::span<const double> timings_;
   size_t calls_ = 0;
   std::array<float, 16> input_{};
   std::array<float, 16> output_{};
@@ -146,6 +151,22 @@ int main() {
         "benchmark uses backend-owned buffers without staging copies");
 
   options.warmup = 0;
+  const std::array unordered_timings{8.0, 2.0, 10.0, 4.0};
+  TimedTestEngine percentile_engine(TimedTestEngine::Fault::None, false, unordered_timings);
+  auto percentile_options = options;
+  percentile_options.iterations = unordered_timings.size();
+  const auto percentiles = mdedge::run_benchmark(percentile_engine, percentile_options).device_compute;
+  check(percentiles && percentiles->min_us == 2.0 && percentiles->max_us == 10.0 &&
+        percentiles->mean_us == 6.0 && std::abs(percentiles->p50_us - 6.0) < 1e-12 &&
+        std::abs(percentiles->p90_us - 9.4) < 1e-12 &&
+        std::abs(percentiles->p95_us - 9.7) < 1e-12 &&
+        std::abs(percentiles->p99_us - 9.94) < 1e-12,
+        "overlapping percentile ranks interpolate unsorted latency samples exactly");
+  percentile_options.iterations = 1;
+  const auto one_sample = mdedge::run_benchmark(percentile_engine, percentile_options).device_compute;
+  check(one_sample && one_sample->p50_us == 8.0 && one_sample->p99_us == 8.0,
+        "a one-sample distribution returns that sample for each percentile");
+
   TimedTestEngine nan_engine(TimedTestEngine::Fault::FirstNaN);
   const auto nan_stats = mdedge::run_benchmark(nan_engine, options);
   check(nan_stats.validation && !nan_stats.validation->passed &&

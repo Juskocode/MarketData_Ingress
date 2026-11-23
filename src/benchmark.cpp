@@ -27,33 +27,18 @@ namespace mdedge {
 
 namespace {
 
-double percentile(const std::vector<double>& sorted, double p) {
-  if (sorted.empty()) {
-    return 0.0;
-  }
-  const double position = std::clamp(p, 0.0, 1.0) * static_cast<double>(sorted.size() - 1);
-  const size_t lower = static_cast<size_t>(std::floor(position));
-  const size_t upper = static_cast<size_t>(std::ceil(position));
-  const double weight = position - static_cast<double>(lower);
-  return sorted[lower] + ((sorted[upper] - sorted[lower]) * weight);
-}
-
 LatencyDistribution summarize(std::vector<double> values) {
   LatencyDistribution result;
   if (values.empty()) {
     return result;
   }
 
-  std::ranges::sort(values);
   result.samples = values.size();
   result.mean_us = std::accumulate(values.begin(), values.end(), 0.0) /
       static_cast<double>(values.size());
-  result.min_us = values.front();
-  result.p50_us = percentile(values, 0.50);
-  result.p90_us = percentile(values, 0.90);
-  result.p95_us = percentile(values, 0.95);
-  result.p99_us = percentile(values, 0.99);
-  result.max_us = values.back();
+  const auto extrema = std::ranges::minmax_element(values);
+  result.min_us = *extrema.min;
+  result.max_us = *extrema.max;
 
   double variance = 0.0;
   for (const double value : values) {
@@ -61,6 +46,29 @@ LatencyDistribution summarize(std::vector<double> values) {
     variance += delta * delta;
   }
   result.stddev_us = std::sqrt(variance / static_cast<double>(values.size()));
+
+  // Percentiles are requested in ascending order. Each selection fixes one
+  // rank and partitions the suffix for all subsequent selections.
+  auto unpartitioned = values.begin();
+  const auto select_rank = [&](size_t rank) {
+    const auto position = values.begin() + static_cast<std::ptrdiff_t>(rank);
+    if (position >= unpartitioned) {
+      std::ranges::nth_element(unpartitioned, position, values.end());
+      unpartitioned = position + 1;
+    }
+    return *position;
+  };
+  const auto percentile = [&](double p) {
+    const double position = p * static_cast<double>(values.size() - 1);
+    const auto lower_rank = static_cast<size_t>(position);
+    const double lower = select_rank(lower_rank);
+    const double upper = select_rank(static_cast<size_t>(std::ceil(position)));
+    return lower + (upper - lower) * (position - static_cast<double>(lower_rank));
+  };
+  result.p50_us = percentile(0.50);
+  result.p90_us = percentile(0.90);
+  result.p95_us = percentile(0.95);
+  result.p99_us = percentile(0.99);
   return result;
 }
 
