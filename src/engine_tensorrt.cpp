@@ -78,6 +78,10 @@ void TensorRTInferenceEngine::destroyResources() {
   if (stream_) {
     cudaStreamSynchronize(stream_);
   }
+  if (graph_execution_) {
+    cudaGraphExecDestroy(graph_execution_);
+    graph_execution_ = nullptr;
+  }
   if (device_start_) {
     cudaEventDestroy(device_start_);
     device_start_ = nullptr;
@@ -85,10 +89,6 @@ void TensorRTInferenceEngine::destroyResources() {
   if (device_stop_) {
     cudaEventDestroy(device_stop_);
     device_stop_ = nullptr;
-  }
-  if (graph_execution_) {
-    cudaGraphExecDestroy(graph_execution_);
-    graph_execution_ = nullptr;
   }
   if (stream_) {
     cudaStreamDestroy(stream_);
@@ -161,6 +161,13 @@ bool TensorRTInferenceEngine::initializeExecution() {
       engine_->getTensorDataType(output_name_.c_str()) != nvinfer1::DataType::kFLOAT) {
     std::cerr << "This runner currently requires FP32 input and output tensors\n";
     return false;
+  }
+  for (const char* name : {input_name_.c_str(), output_name_.c_str()}) {
+    if (engine_->getTensorLocation(name) != nvinfer1::TensorLocation::kDEVICE ||
+        engine_->getTensorFormat(name) != nvinfer1::TensorFormat::kLINEAR) {
+      std::cerr << "Tensor " << name << " must use linear storage on the GPU\n";
+      return false;
+    }
   }
 
   const auto input_elements = checked_volume(engine_->getTensorShape(input_name_.c_str()));
@@ -309,11 +316,13 @@ bool TensorRTInferenceEngine::loadOnnx(const std::string& model_path) {
 
 bool TensorRTInferenceEngine::load(const std::string& model_path) {
   destroyResources();
-  if (model_path.size() >= 5 &&
-      model_path.compare(model_path.size() - 5, 5, ".onnx") == 0) {
-    return loadOnnx(model_path);
+  const bool loaded = model_path.ends_with(".onnx")
+      ? loadOnnx(model_path)
+      : loadSerializedEngine(model_path);
+  if (!loaded) {
+    destroyResources();
   }
-  return loadSerializedEngine(model_path);
+  return loaded;
 }
 
 bool TensorRTInferenceEngine::infer_into(
@@ -344,14 +353,13 @@ bool TensorRTInferenceEngine::infer_into(
     std::memmove(input_host_, input, input_bytes_);
   }
 
-  if (graph_execution_) {
-    if (!cuda_ok(cudaGraphLaunch(graph_execution_, stream_), "cudaGraphLaunch")) {
-      return false;
-    }
-  } else if (!enqueue_request()) {
-    return false;
-  }
-  if (!cuda_ok(cudaStreamSynchronize(stream_), "cudaStreamSynchronize")) {
+  const bool submitted = graph_execution_
+      ? cuda_ok(cudaGraphLaunch(graph_execution_, stream_), "cudaGraphLaunch")
+      : enqueue_request();
+  // A failed submission can still leave an earlier copy queued. Drain it
+  // before returning so the caller can write to the borrowed input again.
+  const bool synchronized = cuda_ok(cudaStreamSynchronize(stream_), "cudaStreamSynchronize");
+  if (!submitted || !synchronized) {
     return false;
   }
 
@@ -418,8 +426,10 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
     return false;
   }
 
-  if (!enqueue_request() ||
-      !cuda_ok(cudaStreamSynchronize(stream_), "CUDA graph priming synchronization")) {
+  const bool primed = enqueue_request();
+  const bool synchronized =
+      cuda_ok(cudaStreamSynchronize(stream_), "CUDA graph priming synchronization");
+  if (!primed || !synchronized) {
     std::cerr << "Could not prime TensorRT context for CUDA graph capture\n";
     return false;
   }
