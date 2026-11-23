@@ -20,6 +20,7 @@ public:
   [[nodiscard]] size_t rows() const;
   [[nodiscard]] size_t features() const;
   [[nodiscard]] const char* storage_kind() const;
+  [[nodiscard]] std::span<const float> rows_view(size_t row_offset, size_t row_count) const;
   [[nodiscard]] std::string validate_and_fingerprint(size_t row_offset, size_t row_count) const;
 
   // Views borrow this dataset. Partial final batches are excluded, never padded.
@@ -28,10 +29,11 @@ public:
       throw std::invalid_argument("Invalid replay batch size or row offset");
     }
     const size_t count = (rows() - row_offset) / batch_size;
+    const auto window = rows_view(row_offset, count * batch_size);
+    const size_t elements_per_batch = count == 0 ? 0 : batch_size * features();
     return std::views::iota(size_t{0}, count) |
-        std::views::transform([this, batch_size, row_offset](size_t i) {
-          return values().subspan((row_offset + i * batch_size) * features(),
-                                  batch_size * features());
+        std::views::transform([window, elements_per_batch](size_t i) {
+          return window.subspan(i * elements_per_batch, elements_per_batch);
         });
   }
 

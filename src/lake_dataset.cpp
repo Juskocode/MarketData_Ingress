@@ -124,13 +124,17 @@ const char* LakeDataset::storage_kind() const {
   return "buffered";
 #endif
 }
-std::string LakeDataset::validate_and_fingerprint(size_t offset, size_t count) const {
+std::span<const float> LakeDataset::rows_view(size_t offset, size_t count) const {
   if (offset > rows() || count > rows() - offset) {
-    throw std::invalid_argument("Replay validation range exceeds dataset");
+    throw std::invalid_argument("Replay row range exceeds dataset");
   }
+  return values().subspan(offset * features(), count * features());
+}
+
+std::string LakeDataset::validate_and_fingerprint(size_t offset, size_t count) const {
   // Non-cryptographic content identity for reproducible workload comparisons.
   uint64_t hash = 14695981039346656037ULL;
-  for (float value : values().subspan(offset * features(), count * features())) {
+  for (float value : rows_view(offset, count)) {
     if (!std::isfinite(value)) throw std::runtime_error("Replay contains non-finite FP32 input");
     const auto bits = std::bit_cast<uint32_t>(value);
     for (const auto shift : {0, 8, 16, 24}) {

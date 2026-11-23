@@ -86,11 +86,19 @@ class LakePreparationTest(unittest.TestCase):
             "--input-size", "2", "--iterations", "7"], capture_output=True)
         self.assertNotEqual(overflow.returncode, 0)
 
+    def test_unsorted_export_preserves_fragment_and_row_order(self):
+        manifest = prepare.prepare(self.args("--scan-rows", "2"))
+        binary = self.output.read_bytes()
+        expected = np.array([105, 101, 103, 107, 106, 102, 104, 108], dtype="<f4")
+        expected_matrix = np.column_stack((expected, expected - 1)).astype("<f4")
+        self.assertEqual(binary, prepare.HEADER.pack(b"MDLAKE01", 8, 2, 64)
+                         + expected_matrix.tobytes())
+        self.assertEqual(manifest["sha256"], hashlib.sha256(binary).hexdigest())
+
     def test_row_bound_fails_without_partial_output(self):
         with self.assertRaisesRegex(ValueError, "Row bound exceeded"):
-            prepare.prepare(self.args("--max-rows", "3"))
-        self.assertFalse(self.output.exists())
-        self.assertFalse(Path(str(self.output) + ".json").exists())
+            prepare.prepare(self.args("--max-rows", "3", "--scan-rows", "2"))
+        self.assertEqual(set(self.root.iterdir()), {self.source})
 
     def test_fragment_bound(self):
         with self.assertRaisesRegex(ValueError, "Too many fragments"):

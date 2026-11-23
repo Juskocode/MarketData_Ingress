@@ -124,34 +124,39 @@ InferenceStats run_benchmark(InferenceEngine& engine, const RunOptions& opts) {
   }
 
   std::vector<float> owned_input;
-  auto input = engine.host_input_buffer();
-  if (input.empty()) {
-    owned_input.resize(total_input);
-    input = owned_input;
-  } else if (input.size() != total_input) {
-    throw std::runtime_error("Engine staging input does not match its declared shape");
-  }
-  std::unique_ptr<LakeDataset> dataset;
+  std::span<const float> synthetic_input;
+  std::span<const float> replay_window;
+  std::optional<LakeDataset> dataset;
   std::string fingerprint = "synthetic-v1";
   if (!opts.input_file.empty()) {
-    dataset = std::make_unique<LakeDataset>(opts.input_file);
+    dataset.emplace(opts.input_file);
     if (dataset->features() != opts.input_size || opts.input_row_offset > dataset->rows() ||
         opts.iterations > (dataset->rows() - opts.input_row_offset) / opts.batch_size) {
       throw std::runtime_error("Replay shape/range mismatch: match --input-size to features and "
                                "provide --iterations complete batches after --input-row-offset");
     }
-    fingerprint = dataset->validate_and_fingerprint(opts.input_row_offset,
-                                                   opts.iterations * opts.batch_size);
+    const size_t replay_rows = opts.iterations * opts.batch_size;
+    replay_window = dataset->rows_view(opts.input_row_offset, replay_rows);
+    fingerprint = dataset->validate_and_fingerprint(opts.input_row_offset, replay_rows);
   } else {
     if (opts.input_row_offset != 0) {
       throw std::runtime_error("Replay offset requires --input-file");
     }
+    auto input = engine.host_input_buffer();
+    if (input.empty()) {
+      owned_input.resize(total_input);
+      input = owned_input;
+    } else if (input.size() != total_input) {
+      throw std::runtime_error("Engine staging input does not match its declared shape");
+    }
     std::ranges::transform(std::views::iota(size_t{0}, total_input), input.begin(),
         [](size_t i) { return static_cast<float>(i % 97U) / 97.0F; });
+    synthetic_input = input;
   }
-  const auto request_input = [&](size_t iteration) -> std::span<const float> {
-    if (dataset) return dataset->batches(opts.batch_size, opts.input_row_offset)[iteration];
-    return input;
+  const auto request_input = [&](size_t iteration) {
+    return replay_window.empty()
+        ? synthetic_input
+        : replay_window.subspan(iteration * total_input, total_input);
   };
   const size_t declared_output_elements = engine.output_elements_per_batch();
   const size_t output_capacity = declared_output_elements == 0

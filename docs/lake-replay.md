@@ -25,7 +25,7 @@ Time filters use `[start, end)` and require timezone-aware Arrow timestamps and 
 
 An optional global `--order-by` sorts only the bounded selected rows. Ties preserve the original path/row order. Keep sources immutable during preparation; mutable lake tables should be exported from a versioned snapshot first. This is Parquet file/directory support, not an Iceberg/Delta transaction-log reader. Supply a committed snapshot's Parquet inputs rather than scanning a table directory containing obsolete files.
 
-Nulls, nonnumeric features, non-finite FP32 conversions and empty selections fail. Exports never overwrite an existing snapshot or manifest. Memory is proportional to `max_rows × projected_columns` plus Arrow/sort and the FP32 matrix; the limit is a row bound, not a strict byte cap. Narrow the source partition for large lakes.
+Nulls, nonnumeric features, non-finite FP32 conversions and empty selections fail. Exports never overwrite an existing snapshot or manifest. Without `--order-by`, preparation converts and writes one Arrow batch at a time, with `--scan-rows` controlling the batch size. Global sorting retains the bounded selection and requires memory proportional to `max_rows × projected_columns` plus sorting overhead. Neither row limit is a strict byte cap.
 
 The `.json` sidecar records feature order, bounds, symbols, sort keys, library versions and a SHA-256 of the completed binary. Keep it with the snapshot.
 

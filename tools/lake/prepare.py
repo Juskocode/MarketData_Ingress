@@ -36,6 +36,19 @@ def utc_time(value: str) -> dt.datetime:
     return result.astimezone(dt.timezone.utc)
 
 
+def feature_matrix(batch: pa.RecordBatch, columns: list[str]) -> np.ndarray:
+    matrix = np.empty((batch.num_rows, len(columns)), dtype="<f4")
+    with np.errstate(over="ignore", invalid="ignore"):
+        for index, name in enumerate(columns):
+            values = batch.column(name)
+            if values.null_count:
+                raise ValueError("Null feature/order values are not allowed; prepare features upstream")
+            matrix[:, index] = values.to_numpy(zero_copy_only=False)
+    if not np.isfinite(matrix).all():
+        raise ValueError("Features contain NaN/infinity or overflow after FP32 conversion")
+    return matrix
+
+
 def prepare(args: argparse.Namespace) -> dict:
     source = urlsplit(args.source)
     if source.username or source.password or source.query or source.fragment:
@@ -97,37 +110,41 @@ def prepare(args: argparse.Namespace) -> dict:
             raise ValueError("Too many fragments; narrow the source partition or filters")
         fragments.append(fragment)
     fragments.sort(key=lambda item: item.path)
-    batches, rows = [], 0
-    for fragment in fragments:
-        scanner = fragment.scanner(schema=dataset.schema, columns=selected,
-                                   filter=predicate, batch_size=min(args.scan_rows, args.max_rows + 1),
-                                   batch_readahead=1, fragment_readahead=1, use_threads=False)
-        for batch in scanner.to_batches():
-            rows += batch.num_rows
-            if rows > args.max_rows:
-                raise ValueError("Row bound exceeded; narrow filters or explicitly raise --max-rows")
-            if batch.num_rows:
-                batches.append(batch)
-    if not rows:
-        raise ValueError("No rows matched the requested snapshot")
-    table = pa.Table.from_batches(batches).combine_chunks()
-    if any(table[name].null_count for name in selected):
-        raise ValueError("Null feature/order values are not allowed; prepare features upstream")
+    scan_rows = min(args.scan_rows, args.max_rows + 1)
+
+    def scan_batches():
+        rows = 0
+        for fragment in fragments:
+            scanner = fragment.scanner(
+                schema=dataset.schema, columns=selected, filter=predicate,
+                batch_size=scan_rows, batch_readahead=1, fragment_readahead=1,
+                use_threads=False,
+            )
+            for batch in scanner.to_batches():
+                rows += batch.num_rows
+                if rows > args.max_rows:
+                    raise ValueError("Row bound exceeded; narrow filters or explicitly raise --max-rows")
+                if batch.num_rows:
+                    yield batch
+        if not rows:
+            raise ValueError("No rows matched the requested snapshot")
+
+    batches = scan_batches()
     if order:
         tie = "__md_ingress_row__"
         if tie in selected:
             raise ValueError(f"Reserved ordering column {tie}")
-        table = table.append_column(tie, pa.array(np.arange(rows, dtype=np.int64)))
-        table = table.take(pc.sort_indices(table, sort_keys=[(key, "ascending") for key in order + [tie]]))
-    matrix = np.empty((rows, len(columns)), dtype="<f4")
-    with np.errstate(over="ignore", invalid="ignore"):
-        for index, name in enumerate(columns):
-            matrix[:, index] = table[name].combine_chunks().to_numpy(zero_copy_only=False)
-    if not np.isfinite(matrix).all():
-        raise ValueError("Features contain NaN/infinity or overflow after FP32 conversion")
+        table = pa.Table.from_batches(batches)
+        if any(table[name].null_count for name in order):
+            raise ValueError("Null feature/order values are not allowed; prepare features upstream")
+        table = table.append_column(tie, pa.array(np.arange(table.num_rows, dtype=np.int64)))
+        sort_keys = [(key, "ascending") for key in order + [tie]]
+        batches = iter(table.take(pc.sort_indices(table, sort_keys=sort_keys))
+                       .to_batches(max_chunksize=scan_rows))
+        del table
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "format": "lake-f32-v1", "rows": rows, "features": len(columns),
+        "format": "lake-f32-v1", "features": len(columns),
         "columns": columns, "order_by": order, "source": args.source,
         "fragment_count": len(fragments), "fragments": [item.path for item in fragments],
         "start_inclusive": args.start, "end_exclusive": args.end, "symbols": args.symbol,
@@ -139,11 +156,17 @@ def prepare(args: argparse.Namespace) -> dict:
     try:
         with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as stream:
             temporaries.append(Path(stream.name))
-            header = HEADER.pack(MAGIC, rows, len(columns), matrix.nbytes)
-            stream.write(header)
-            stream.write(memoryview(matrix).cast("B"))
+            stream.write(bytes(HEADER.size))
+            rows = 0
+            for batch in batches:
+                stream.write(memoryview(feature_matrix(batch, columns)).cast("B"))
+                rows += batch.num_rows
+            payload_bytes = stream.tell() - HEADER.size
+            stream.seek(0)
+            stream.write(HEADER.pack(MAGIC, rows, len(columns), payload_bytes))
             stream.flush()
             os.fsync(stream.fileno())
+        manifest["rows"] = rows
         digest = hashlib.sha256()
         with temporaries[0].open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
