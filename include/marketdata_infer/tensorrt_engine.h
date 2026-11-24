@@ -41,7 +41,7 @@ private:
   bool loadSerializedEngine(const std::string& model_path);
   bool loadOnnx(const std::string& model_path);
   bool initializeExecution();
-  bool enqueue_request();
+  bool enqueue_request(unsigned int event_flags = cudaEventRecordDefault);
   void destroyResources();
 
   class Logger final : public nvinfer1::ILogger {

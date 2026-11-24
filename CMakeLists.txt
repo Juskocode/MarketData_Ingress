@@ -185,7 +185,8 @@ if(HAVE_TENSORRT)
 endif()
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(FILES tools/lake/prepare.py tools/lake/binance_aggtrades.py
-  tools/lake/replay_public_history.py tools/lake/requirements.txt
+  tools/lake/replay_public_history.py tools/lake/compare_tensorrt_history.py
+  tools/lake/requirements.txt
   DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/lake)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(DIRECTORY tools/visualization/

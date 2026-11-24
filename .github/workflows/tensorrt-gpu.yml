@@ -20,6 +20,10 @@ on:
         required: true
         type: boolean
         default: true
+      historical_replay:
+        description: Compare direct and CUDA Graph execution on both pinned historical datasets
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +43,31 @@ jobs:
         run: cmake --build build --parallel
       - name: Run deterministic tests first
         run: ctest --test-dir build --output-on-failure
+      - name: Compare TensorRT replay modes on historical data
+        if: inputs.historical_replay
+        run: |
+          mkdir -p out
+          nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv > out/nvidia.txt
+          nvcc --version >> out/nvidia.txt
+          python3 -m venv build-lake-venv
+          build-lake-venv/bin/python -m pip install -r tools/lake/requirements.txt
+          build-lake-venv/bin/python tools/lake/replay_public_history.py \
+            --ingress build/bin/marketdata_ingress --output out/public-history
+          build-lake-venv/bin/python tools/lake/compare_tensorrt_history.py \
+            --history out/public-history --ingress build/bin/marketdata_ingress \
+            --output out/tensorrt-history
+      - name: Upload historical TensorRT evidence
+        if: always() && inputs.historical_replay
+        uses: actions/upload-artifact@v7
+        with:
+          name: tensorrt-historical-replay
+          path: |
+            out/nvidia.txt
+            out/tensorrt-history/report.json
+            out/tensorrt-history/*/*.json
+          if-no-files-found: warn
       - name: Generate a native test engine when no model was supplied
+        if: ${{ !inputs.historical_replay }}
         id: model
         env:
           MODEL_PATH: ${{ inputs.model_path }}
@@ -54,6 +82,7 @@ jobs:
             echo "verify_identity=false" >> "${GITHUB_OUTPUT}"
           fi
       - name: Enforce GPU device-latency SLO
+        if: ${{ !inputs.historical_replay }}
         env:
           MODEL_PATH: ${{ inputs.model_path }}
           INPUT_SIZE: ${{ inputs.input_size }}
@@ -81,17 +110,17 @@ jobs:
             "${GRAPH_ARGS[@]}" \
             --json-out build/tensorrt_metrics.json
       - name: Upload GPU evidence
-        if: always()
+        if: always() && !inputs.historical_replay
         uses: actions/upload-artifact@v7
         with:
           name: tensorrt-gpu-metrics
           path: build/tensorrt_metrics.json
           if-no-files-found: warn
       - name: Package validated GPU binaries
-        if: success()
+        if: success() && !inputs.historical_replay
         run: cmake --build build --target package
       - name: Upload validated GPU package
-        if: success()
+        if: success() && !inputs.historical_replay
         uses: actions/upload-artifact@v7
         with:
           name: tensorrt-gpu-package

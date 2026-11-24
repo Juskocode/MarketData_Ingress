@@ -377,18 +377,20 @@ bool TensorRTInferenceEngine::infer_into(
   return true;
 }
 
-bool TensorRTInferenceEngine::enqueue_request() {
+bool TensorRTInferenceEngine::enqueue_request(unsigned int event_flags) {
   if (!cuda_ok(cudaMemcpyAsync(
           input_device_, input_host_, input_bytes_, cudaMemcpyHostToDevice, stream_),
           "cudaMemcpyAsync(H2D)") ||
-      !cuda_ok(cudaEventRecord(device_start_, stream_), "cudaEventRecord(start)")) {
+      !cuda_ok(cudaEventRecordWithFlags(device_start_, stream_, event_flags),
+               "cudaEventRecordWithFlags(start)")) {
     return false;
   }
   if (!context_->enqueueV3(stream_)) {
     std::cerr << "TensorRT enqueueV3 failed\n";
     return false;
   }
-  return cuda_ok(cudaEventRecord(device_stop_, stream_), "cudaEventRecord(stop)") &&
+  return cuda_ok(cudaEventRecordWithFlags(device_stop_, stream_, event_flags),
+                 "cudaEventRecordWithFlags(stop)") &&
       cuda_ok(cudaMemcpyAsync(
           output_host_, output_device_, output_bytes_, cudaMemcpyDeviceToHost, stream_),
           "cudaMemcpyAsync(D2H)");
@@ -439,9 +441,9 @@ bool TensorRTInferenceEngine::enable_cuda_graph() {
           "cudaStreamBeginCapture")) {
     return false;
   }
-  // Fixed pinned/device addresses permit capture of the entire request. The
-  // timing events surround only enqueueV3, so GPU compute keeps its meaning.
-  const bool enqueue_succeeded = enqueue_request();
+  // External event nodes record fresh timestamps on every graph launch.
+  // They bracket enqueueV3 and keep transfers outside device-compute timing.
+  const bool enqueue_succeeded = enqueue_request(cudaEventRecordExternal);
   cudaGraph_t captured_graph = nullptr;
   const cudaError_t capture_status = cudaStreamEndCapture(stream_, &captured_graph);
   if (!enqueue_succeeded || capture_status != cudaSuccess || !captured_graph) {
