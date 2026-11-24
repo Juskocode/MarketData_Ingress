@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import tempfile
 from urllib.parse import urlsplit
@@ -29,11 +30,21 @@ def positive(value: str) -> int:
     return result
 
 
-def utc_time(value: str) -> dt.datetime:
-    result = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if result.tzinfo is None:
+def timestamp_bound(value: str, kind: pa.TimestampType) -> pa.TimestampScalar:
+    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
         raise ValueError("Time bounds must include an explicit UTC offset")
-    return result.astimezone(dt.timezone.utc)
+    fractions = re.findall(r"[.,]([0-9]+)", value)
+    try:
+        if any(digits[6:].strip("0") for digits in fractions):
+            # Parsing via datetime loses significant sub-microsecond digits.
+            return pa.scalar(value.replace(",", ".")).cast(kind)
+        return pa.scalar(parsed, type=pa.timestamp("us", tz="UTC")).cast(kind)
+    except pa.ArrowInvalid as error:
+        raise ValueError(
+            f"Time bound {value!r} cannot be represented exactly as {kind}; "
+            f"use a timestamp in range and aligned to the column's {kind.unit} precision"
+        ) from error
 
 
 def feature_matrix(batch: pa.RecordBatch, columns: list[str]) -> np.ndarray:
@@ -89,14 +100,14 @@ def prepare(args: argparse.Namespace) -> dict:
         kind = dataset.schema.field(args.timestamp_column).type
         if not pa.types.is_timestamp(kind) or not kind.tz:
             raise ValueError("Time filtering requires an Arrow timestamp column with timezone")
-        start = utc_time(args.start) if args.start else None
-        end = utc_time(args.end) if args.end else None
-        if start and end and start >= end:
+        start = timestamp_bound(args.start, kind) if args.start else None
+        end = timestamp_bound(args.end, kind) if args.end else None
+        if start is not None and end is not None and start.value >= end.value:
             raise ValueError("--start must precede --end")
-        if start:
-            predicate &= ds.field(args.timestamp_column) >= pa.scalar(start, type=kind)
-        if end:
-            predicate &= ds.field(args.timestamp_column) < pa.scalar(end, type=kind)
+        if start is not None:
+            predicate &= ds.field(args.timestamp_column) >= start
+        if end is not None:
+            predicate &= ds.field(args.timestamp_column) < end
     if args.symbol:
         if not args.symbol_column:
             raise ValueError("--symbol requires --symbol-column")
@@ -147,6 +158,7 @@ def prepare(args: argparse.Namespace) -> dict:
         "format": "lake-f32-v1", "features": len(columns),
         "columns": columns, "order_by": order, "source": args.source,
         "fragment_count": len(fragments), "fragments": [item.path for item in fragments],
+        "timestamp_column": args.timestamp_column, "symbol_column": args.symbol_column,
         "start_inclusive": args.start, "end_exclusive": args.end, "symbols": args.symbol,
         "pyarrow_version": pa.__version__, "numpy_version": np.__version__,
     }

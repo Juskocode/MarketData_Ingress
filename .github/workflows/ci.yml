@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -105,3 +106,17 @@ jobs:
         run: |
           cmake --build build-lake --parallel 2
           ctest --test-dir build-lake --output-on-failure
+      - name: Replay pinned public historical trades and quotes
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          build-lake-venv/bin/python tools/lake/replay_public_history.py \
+            --ingress build-lake/bin/marketdata_ingress --output out/public-history
+      - name: Upload public replay metrics
+        if: success() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-history-metrics
+          path: |
+            out/public-history/report.json
+            out/public-history/*/metrics.json
+          if-no-files-found: error

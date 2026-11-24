@@ -167,6 +167,8 @@ if(MD_BUILD_TESTS)
   add_test(NAME unit_lake_replay COMMAND marketdata_lake_tests)
   if(MD_BUILD_LAKE_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME binance_aggregate_trade_adapter COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_binance_aggtrades.py)
     add_test(NAME parquet_lake_integration COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_lake_prepare.py
       $<TARGET_FILE:marketdata_ingress> $<TARGET_FILE:marketdata_metrics_compare>)
@@ -182,7 +184,8 @@ if(HAVE_TENSORRT)
   install(TARGETS marketdata_build_engine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
-install(FILES tools/lake/prepare.py tools/lake/requirements.txt
+install(FILES tools/lake/prepare.py tools/lake/binance_aggtrades.py
+  tools/lake/replay_public_history.py tools/lake/requirements.txt
   DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/lake)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(DIRECTORY tools/visualization/

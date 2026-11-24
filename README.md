@@ -77,7 +77,16 @@ The runner intentionally supports one fixed-shape FP32 input and one fixed-shape
 
 ## Replay real lake features
 
-Parquet snapshots from local files or Arrow-supported cloud filesystems can be prepared into bounded FP32 datasets and replayed with `--input-file`. Native C++23 ranges expose mapped batches without per-request tensor allocation; metrics record the selected workload fingerprint. See [data-lake replay](docs/lake-replay.md) for feature schema, filtering, timing boundaries and integration tests.
+Run the historical acceptance test after building. It exercises a Binance spot trade archive and a Crypto Lake Level 1 Parquet sample. Both fixtures are downloadable without API credentials.
+
+```bash
+python3 -m venv build-lake-venv
+build-lake-venv/bin/python -m pip install -r tools/lake/requirements.txt
+build-lake-venv/bin/python tools/lake/replay_public_history.py \
+  --ingress build/bin/marketdata_ingress --output out/public-history
+```
+
+The test verifies source and snapshot SHA-256, checks native batch counts and fingerprints, and writes `out/public-history/report.json` with links to both metrics files. For cached runs, pass `--offline` and a new `--output` directory. See [data-lake replay](docs/lake-replay.md) for fixture provenance and how to replay your own Parquet data.
 
 ## Backend policy
 
@@ -93,6 +102,8 @@ Run a benchmark with `--json-out`, open `tools/visualization/index.html`, and dr
 ## CI/CD
 
 Every push and pull request runs GCC Release, GCC Debug with ASan/UBSan, Clang Release, CTest, source-policy checks, and staged deployability checks. Pull requests additionally run input-size stress, invalid-CLI, strict-backend, and threshold-failure tests.
+
+Manually dispatch **MarketData Edge CI** to run the two public fixtures and download the `public-history-metrics` artifact. The standard Parquet integration tests use local fixtures.
 
 The manual `TensorRT GPU Validation` workflow targets a self-hosted runner labeled `gpu` and `tensorrt`. It requires TensorRT at configure time, generates the native identity engine if its requested model path is absent, and uploads the measured JSON as evidence.
 

@@ -2,6 +2,23 @@
 
 Prepare numeric model features from a bounded Parquet snapshot, then replay them through the same native CPU/TensorRT API. Python/Arrow is an offline preparation step. The native executable has no Arrow, Python or cloud SDK dependency.
 
+## Reproduce with public data
+
+The [README quickstart](../README.md#replay-real-lake-features) uses Python 3.11+ and downloads two fixed inputs. The runner caches verified originals under `out/public-history-cache`. Use `--offline` to replay from that cache or `--dataset binance-trades` and `--dataset crypto-lake-quotes` to select an individual workload. Use a new output directory for each run.
+
+| Source | Workload | Snapshot rows | Native requests × 8 | Replay fingerprint |
+| --- | --- | ---: | ---: | --- |
+| [Binance Vision spot aggregate trades](https://github.com/binance/binance-public-data) | BTCUSDT, 2025-02-01 00:00–00:05 UTC | 3,457 | 432 | `26346c499d7b43f9` |
+| [Crypto Lake Level 1 quotes](https://crypto-lake.com/data/) | BTC-USDT, 2022-10-01 22:00–22:06 UTC | 3,064 | 383 | `4c468d19878148a1` |
+
+The Binance converter reads the full daily ZIP in bounded batches. It stages 859,311 trades as typed Parquet, normalizes timestamps to UTC, and prepares price, base quantity, quote quantity and taker side from the five-minute window. A buyer-maker flag produces a sell-side value of `-1`. A buyer taker produces `+1`. The fixture leaves one final trade outside the last complete batch. [Publisher checksum](https://data.binance.vision/data/spot/daily/aggTrades/BTCUSDT/BTCUSDT-aggTrades-2025-02-01.zip.CHECKSUM)
+
+The Crypto Lake object is used directly as Parquet. Replay orders the four bid and ask price and size features by the object's integer nanosecond receipt clock. The object is stored under the provider's October 2 partition. Its receipt times are on October 1 UTC. [Parquet object](https://s3.eu-west-1.amazonaws.com/sample.crypto.lake/level_1/exchange=BINANCE/symbol=BTC-USDT/dt=2022-10-02/converted_a849a1d5a1154281958cfaf2e9f3d844.snappy.parquet)
+
+Both fixtures use a pinned source SHA-256 and a pinned FP32 snapshot SHA-256. The runner verifies the snapshot header, computes the fingerprint from the bytes of the full batches, and checks the native metrics against the expected shape, row count and fingerprint. The acceptance run uses the CPU mock backend. For TensorRT latency or output validation, run the resulting snapshots with a compatible model on GPU hardware.
+
+Review the provider terms before reusing the data. The examples keep archives, derived Parquet and FP32 rows in local ignored directories. The manual CI job uploads aggregate reports and timing metrics. [Binance Vision dataset terms](https://github.com/binance/binance-public-data/blob/master/TERMS_AND_CONDITIONS.md) · [Crypto Lake terms](https://crypto-lake.com/terms-of-service/)
+
 ## Prepare a snapshot
 
 ```bash
@@ -21,7 +38,7 @@ The output directory is created if needed. `--columns` order is the model's feat
 
 The source can be a local Parquet file, a Hive-partitioned directory, or an Arrow filesystem URI such as `s3://bucket/features/date=2026-11-16`. Filesystem authentication uses Arrow's normal credential providers. Do not put credentials in a URI. S3/GCS/Azure access needs the corresponding Arrow filesystem support and environment credentials; only local Parquet was exercised in the integration suite, not a remote account.
 
-Time filters use `[start, end)` and require timezone-aware Arrow timestamps and explicit UTC offsets in the bounds. Symbols are exact matches. The scanner projects only features/order columns and pushes the filters down. Fragments are processed in lexical path order, rows in physical order, with scanner prefetch limited. `--max-fragments` defaults to 1,000. Both fragment and row bounds fail the export rather than truncate silently.
+Time filters use `[start, end)` and require timezone-aware Arrow timestamps and explicit UTC offsets in the bounds. Bounds must align exactly to the timestamp column's precision, including nanoseconds when the column supports them. Symbols are exact matches. The scanner projects only features/order columns and pushes the filters down. Fragments are processed in lexical path order, rows in physical order, with scanner prefetch limited. `--max-fragments` defaults to 1,000. Exceeding either bound fails the export.
 
 An optional global `--order-by` sorts only the bounded selected rows. Ties preserve the original path/row order. Keep sources immutable during preparation; mutable lake tables should be exported from a versioned snapshot first. This is Parquet file/directory support, not an Iceberg/Delta transaction-log reader. Supply a committed snapshot's Parquet inputs rather than scanning a table directory containing obsolete files.
 

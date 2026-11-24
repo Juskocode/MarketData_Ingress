@@ -129,6 +129,30 @@ class LakePreparationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit UTC offset"):
             prepare.prepare(self.args("--timestamp-column", "time", "--start", "2026-11-16T00:00:00"))
 
+    def test_nanosecond_window_includes_start_and_excludes_end(self):
+        source = self.root / "nanoseconds.parquet"
+        epoch = 1_704_067_200_000_000_000
+        time = pa.array([epoch + offset for offset in (0, 998, 999, 1000)],
+                        type=pa.timestamp("ns", tz="UTC"))
+        pq.write_table(pa.table({"time": time, "price": [1.0, 2.0, 3.0, 4.0]}), source)
+        args = self.args("--columns", "price", "--timestamp-column", "time",
+                         "--start", "2024-01-01T01:00:00.000000999+01:00",
+                         "--end", "2024-01-01T00:00:00.000001Z")
+        args.source = str(source)
+        self.assertEqual(prepare.prepare(args)["rows"], 1)
+        self.assertEqual(self.output.read_bytes()[prepare.HEADER.size:], struct.pack("<f", 3.0))
+
+    def test_bounds_finer_than_the_source_unit_are_rejected(self):
+        source = self.root / "milliseconds.parquet"
+        time = pa.array([1_704_067_200_000], type=pa.timestamp("ms", tz="UTC"))
+        pq.write_table(pa.table({"time": time, "price": [1.0]}), source)
+        args = self.args("--columns", "price", "--timestamp-column", "time",
+                         "--end", "2024-01-01T00:00:00.000001Z")
+        args.source = str(source)
+        with self.assertRaisesRegex(ValueError, "aligned to the column's ms precision"):
+            prepare.prepare(args)
+        self.assertFalse(self.output.exists())
+
     def test_numeric_and_present_features(self):
         with self.assertRaisesRegex(ValueError, "must be numeric"):
             prepare.prepare(self.args("--columns", "symbol,bid"))
