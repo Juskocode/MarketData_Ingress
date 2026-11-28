@@ -1,6 +1,8 @@
 #include "marketdata_infer/engine.h"
 
 #include <iostream>
+#include <array>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -20,7 +22,10 @@ void check(bool condition, const std::string& message) {
 
 class TimedTestEngine final : public mdedge::InferenceEngine {
 public:
-  explicit TimedTestEngine(bool corrupt_output = false) : corrupt_output_(corrupt_output) {}
+  enum class Fault { None, Corrupt, FirstNaN, InvalidCount };
+  explicit TimedTestEngine(Fault fault = Fault::None, bool staging = false,
+                           std::span<const double> timings = {})
+      : fault_(fault), staging_(staging), timings_(timings) {}
 
   bool load(const std::string&) override { return true; }
 
@@ -37,11 +42,23 @@ public:
     for (size_t i = 0; i < input_elements; ++i) {
       output[i] = input[i];
     }
-    if (corrupt_output_) {
+    ++calls_;
+    if (fault_ == Fault::Corrupt) {
       output[0] += 1.0F;
     }
+    if (fault_ == Fault::FirstNaN && calls_ == 1) {
+      output[0] = std::numeric_limits<float>::quiet_NaN();
+    }
     output_elements = input_elements;
-    device_latency_us_ += 0.05;
+    if (fault_ == Fault::InvalidCount) {
+      output_elements = output_capacity + 1;
+    }
+    if (staging_ && (input != input_.data() || output != output_.data())) {
+      return false;
+    }
+    device_latency_us_ = timings_.empty()
+        ? device_latency_us_ + 0.05
+        : timings_[(calls_ - 1) % timings_.size()];
     return true;
   }
 
@@ -56,6 +73,12 @@ public:
     return true;
   }
   bool cuda_graph_enabled() const override { return cuda_graph_; }
+  std::span<float> host_input_buffer() override {
+    return staging_ ? std::span<float>(input_) : std::span<float>{};
+  }
+  std::span<float> host_output_buffer() override {
+    return staging_ ? std::span<float>(output_) : std::span<float>{};
+  }
   mdedge::RuntimeMetadata runtime_metadata() const override {
     mdedge::RuntimeMetadata metadata;
     metadata.backend_version = "test-v1";
@@ -65,7 +88,12 @@ public:
   }
 
 private:
-  bool corrupt_output_ = false;
+  Fault fault_;
+  bool staging_;
+  std::span<const double> timings_;
+  size_t calls_ = 0;
+  std::array<float, 16> input_{};
+  std::array<float, 16> output_{};
   bool cuda_graph_ = false;
   double device_latency_us_ = 0.1;
 };
@@ -107,13 +135,52 @@ int main() {
   check(json.find("model\\\"with\\\\escapes.engine") != std::string::npos,
         "JSON strings are escaped");
 
-  TimedTestEngine corrupt_engine(true);
+  TimedTestEngine corrupt_engine(TimedTestEngine::Fault::Corrupt);
   check(corrupt_engine.load("corrupt"), "corrupt test engine loads");
   const auto corrupt_stats = mdedge::run_benchmark(corrupt_engine, options);
   check(corrupt_stats.validation && !corrupt_stats.validation->passed,
         "incorrect identity output fails validation");
-  check(corrupt_stats.validation && corrupt_stats.validation->mismatches == 1,
-        "identity validation reports the mismatch count");
+  check(corrupt_stats.validation && corrupt_stats.validation->mismatches == options.iterations,
+        "identity validation checks every measured result");
+  check(stats.validation && stats.validation->compared_elements == options.iterations * 16,
+        "validation counts all compared elements");
+
+  TimedTestEngine staging_engine(TimedTestEngine::Fault::None, true);
+  const auto staging_stats = mdedge::run_benchmark(staging_engine, options);
+  check(staging_stats.validation && staging_stats.validation->passed,
+        "benchmark uses backend-owned buffers without staging copies");
+
+  options.warmup = 0;
+  const std::array unordered_timings{8.0, 2.0, 10.0, 4.0};
+  TimedTestEngine percentile_engine(TimedTestEngine::Fault::None, false, unordered_timings);
+  auto percentile_options = options;
+  percentile_options.iterations = unordered_timings.size();
+  const auto percentiles = mdedge::run_benchmark(percentile_engine, percentile_options).device_compute;
+  check(percentiles && percentiles->min_us == 2.0 && percentiles->max_us == 10.0 &&
+        percentiles->mean_us == 6.0 && std::abs(percentiles->p50_us - 6.0) < 1e-12 &&
+        std::abs(percentiles->p90_us - 9.4) < 1e-12 &&
+        std::abs(percentiles->p95_us - 9.7) < 1e-12 &&
+        std::abs(percentiles->p99_us - 9.94) < 1e-12,
+        "overlapping percentile ranks interpolate unsorted latency samples exactly");
+  percentile_options.iterations = 1;
+  const auto one_sample = mdedge::run_benchmark(percentile_engine, percentile_options).device_compute;
+  check(one_sample && one_sample->p50_us == 8.0 && one_sample->p99_us == 8.0,
+        "a one-sample distribution returns that sample for each percentile");
+
+  TimedTestEngine nan_engine(TimedTestEngine::Fault::FirstNaN);
+  const auto nan_stats = mdedge::run_benchmark(nan_engine, options);
+  check(nan_stats.validation && !nan_stats.validation->passed &&
+        nan_stats.validation->mismatches == 1,
+        "transient NaN fails even when the final result is valid");
+
+  bool rejected_count = false;
+  try {
+    TimedTestEngine invalid_engine(TimedTestEngine::Fault::InvalidCount);
+    mdedge::run_benchmark(invalid_engine, options);
+  } catch (const std::runtime_error&) {
+    rejected_count = true;
+  }
+  check(rejected_count, "out-of-bounds output count is rejected");
 
   options.verify_identity = false;
   auto mock = mdedge::make_engine(mdedge::BackendHint::Mock, false);

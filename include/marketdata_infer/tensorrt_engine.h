@@ -33,12 +33,15 @@ public:
   std::optional<double> last_device_latency_us() const override;
   bool enable_cuda_graph() override;
   bool cuda_graph_enabled() const override;
+  std::span<float> host_input_buffer() override;
+  std::span<float> host_output_buffer() override;
   RuntimeMetadata runtime_metadata() const override;
 
 private:
   bool loadSerializedEngine(const std::string& model_path);
   bool loadOnnx(const std::string& model_path);
   bool initializeExecution();
+  bool enqueue_request(unsigned int event_flags = cudaEventRecordDefault);
   void destroyResources();
 
   class Logger final : public nvinfer1::ILogger {

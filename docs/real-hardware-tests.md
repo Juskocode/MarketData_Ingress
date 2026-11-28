@@ -46,6 +46,39 @@ MD_TEST_ITERATIONS=100000 \
 Set `MD_TEST_ENGINE` to use a prebuilt compatible identity engine instead of the
 native builder.
 
+## Historical replay comparison
+
+Use the same Release binary, CUDA device, FP32 identity engine and historical
+FP32 snapshots for both modes. On the NVIDIA host, build with
+`MD_REQUIRE_TENSORRT=ON` and prepare the pinned data with Python 3.11 or newer.
+
+```bash
+python3 -m venv build-lake-venv
+build-lake-venv/bin/python -m pip install -r tools/lake/requirements.txt
+build-lake-venv/bin/python tools/lake/replay_public_history.py \
+  --ingress build-real/bin/marketdata_ingress --output out/public-history
+build-lake-venv/bin/python tools/lake/compare_tensorrt_history.py \
+  --history out/public-history --ingress build-real/bin/marketdata_ingress \
+  --output out/tensorrt-history
+```
+
+The comparison builds a fixed 32-element identity engine once. Both modes
+verify every output exactly, use batch size 8, and require the expected
+workload fingerprint. Six paired repetitions alternate which mode runs first.
+`out/tensorrt-history/report.json` reports median per-run end-to-end and device
+p50 and p99, with individual runs available alongside it.
+
+End-to-end time includes pinned-buffer staging, CUDA transfers and stream
+synchronization. The device event interval brackets TensorRT enqueue work and
+excludes both transfers. CUDA events have approximately 0.5 µs resolution.
+The identity model measures the engine and transfer path on real market
+features. [NVIDIA CUDA event timing](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__EVENT.html)
+
+Dispatch **TensorRT GPU Validation** with `historical_replay` selected to use
+the same comparison on the repository's self-hosted NVIDIA runner. The
+`tensorrt-historical-replay` artifact contains the aggregate and per-run
+metrics with the driver and device inventory.
+
 ## Pull-request execution
 
 The `TensorRT Real Hardware Tests` workflow always supports manual dispatch. To

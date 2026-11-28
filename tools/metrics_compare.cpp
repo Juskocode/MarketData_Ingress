@@ -42,6 +42,10 @@ class JsonReader {
     return *value;
   }
 
+  std::optional<std::size_t> optional(const Span object, const std::string_view key) const {
+    return find(object, key);
+  }
+
   Span object_at(const std::size_t position) const {
     const std::size_t start = skip_space(position);
     if (start >= text_.size() || text_[start] != '{') {
@@ -239,13 +243,16 @@ struct RunMetrics {
   std::uint64_t input_size;
   std::uint64_t batch_size;
   bool cuda_graph;
+  std::string input_source = "synthetic-v1";
+  std::string input_fingerprint = "synthetic-v1";
+  std::uint64_t row_offset = 0;
 };
 
 std::uint64_t exact_unsigned(const JsonReader& reader,
                              const std::size_t position,
                              const std::string_view field) {
   const double value = reader.number_at(position);
-  if (value < 0.0 || value > static_cast<double>(std::numeric_limits<std::uint64_t>::max()) ||
+  if (value < 0.0 || value >= std::ldexp(1.0, 64) ||
       std::floor(value) != value) {
     throw std::runtime_error("field must be an unsigned integer: " +
                              std::string(field));
@@ -268,7 +275,7 @@ RunMetrics parse_metrics(const std::string& document,
   const Span distribution = reader.object_at(scope_value);
   const Span environment = reader.object_at(reader.required(root, "environment"));
 
-  return RunMetrics{
+  RunMetrics result{
       reader.number_at(reader.required(distribution, metric)),
       reader.string_at(reader.required(root, "backend")),
       reader.string_at(reader.required(environment, "device")),
@@ -276,6 +283,13 @@ RunMetrics parse_metrics(const std::string& document,
       exact_unsigned(reader, reader.required(root, "batch_size"), "batch_size"),
       reader.bool_at(reader.required(root, "cuda_graph")),
   };
+  if (const auto input = reader.optional(root, "input")) {
+    const auto context = reader.object_at(*input);
+    result.input_source = reader.string_at(reader.required(context, "source"));
+    result.input_fingerprint = reader.string_at(reader.required(context, "fingerprint"));
+    result.row_offset = exact_unsigned(reader, reader.required(context, "row_offset"), "row_offset");
+  }
+  return result;
 }
 
 std::string read_file(const std::string& path) {
@@ -311,6 +325,9 @@ std::vector<std::string> context_differences(const RunMetrics& baseline,
   if (baseline.input_size != candidate.input_size) differences.emplace_back("input_size");
   if (baseline.batch_size != candidate.batch_size) differences.emplace_back("batch_size");
   if (baseline.cuda_graph != candidate.cuda_graph) differences.emplace_back("cuda_graph");
+  if (baseline.input_source != candidate.input_source ||
+      baseline.input_fingerprint != candidate.input_fingerprint ||
+      baseline.row_offset != candidate.row_offset) differences.emplace_back("input_workload");
   return differences;
 }
 

@@ -13,9 +13,10 @@ endif()
 option(MD_WITH_TENSORRT "Build the TensorRT backend when TensorRT 10+ is available" ON)
 option(MD_REQUIRE_TENSORRT "Fail configuration unless TensorRT 10+ is available" OFF)
 option(MD_BUILD_TESTS "Build automated tests" ON)
+option(MD_BUILD_LAKE_TESTS "Test Parquet preparation (requires Python, Arrow and NumPy)" OFF)
 option(MD_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -24,7 +25,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 include(GNUInstallDirs)
 
 add_library(md_project_options INTERFACE)
-target_compile_features(md_project_options INTERFACE cxx_std_17)
+target_compile_features(md_project_options INTERFACE cxx_std_23)
 target_compile_definitions(md_project_options INTERFACE
   MD_PROJECT_VERSION="${PROJECT_VERSION}"
   MD_BUILD_REVISION="${MD_BUILD_REVISION}"
@@ -101,19 +102,22 @@ if(HAVE_TENSORRT)
   target_compile_definitions(inference_backend PUBLIC MD_WITH_TENSORRT)
   target_link_libraries(inference_backend
     PRIVATE
-      md_project_options
       ${TENSORRT_LIBRARY}
       ${TENSORRT_PARSER_LIBRARY}
+    PUBLIC
       CUDA::cudart
   )
 else()
   add_library(inference_backend src/engine_mock.cpp)
   target_include_directories(inference_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(inference_backend PRIVATE md_project_options)
 endif()
+
+# Public headers expose C++23 buffer views to downstream consumers.
+target_link_libraries(inference_backend PUBLIC md_project_options)
 
 add_library(core_objects OBJECT
   src/benchmark.cpp
+  src/lake_dataset.cpp
   src/engine_factory.cpp
 )
 target_include_directories(core_objects PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -138,6 +142,7 @@ if(MD_BUILD_TESTS)
   add_executable(marketdata_tests
     tests/test_smoke.cpp
     src/benchmark.cpp
+    src/lake_dataset.cpp
     src/engine_factory.cpp
     src/engine_mock.cpp
   )
@@ -145,7 +150,29 @@ if(MD_BUILD_TESTS)
   target_compile_definitions(marketdata_tests PRIVATE MD_FORCE_MOCK_BACKEND)
   target_link_libraries(marketdata_tests PRIVATE md_project_options)
 
+  if(HAVE_TENSORRT)
+    add_executable(marketdata_gpu_buffers tests/test_tensorrt_buffers.cpp)
+    target_link_libraries(marketdata_gpu_buffers PRIVATE inference_backend md_project_options)
+    add_test(NAME gpu_identity_fixture COMMAND marketdata_build_engine
+      --output ${CMAKE_CURRENT_BINARY_DIR}/buffer-test.engine --input-size 32)
+    set_tests_properties(gpu_identity_fixture PROPERTIES FIXTURES_SETUP gpu_identity LABELS gpu)
+    add_test(NAME gpu_buffer_views COMMAND marketdata_gpu_buffers
+      ${CMAKE_CURRENT_BINARY_DIR}/buffer-test.engine)
+    set_tests_properties(gpu_buffer_views PROPERTIES FIXTURES_REQUIRED gpu_identity LABELS gpu)
+  endif()
+
   add_test(NAME unit_metrics COMMAND marketdata_tests)
+  add_executable(marketdata_lake_tests tests/test_lake.cpp)
+  target_link_libraries(marketdata_lake_tests PRIVATE core_objects inference_backend md_project_options)
+  add_test(NAME unit_lake_replay COMMAND marketdata_lake_tests)
+  if(MD_BUILD_LAKE_TESTS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME binance_aggregate_trade_adapter COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_binance_aggtrades.py)
+    add_test(NAME parquet_lake_integration COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_lake_prepare.py
+      $<TARGET_FILE:marketdata_ingress> $<TARGET_FILE:marketdata_metrics_compare>)
+  endif()
   add_test(NAME cli_help COMMAND marketdata_ingress --help)
   add_test(NAME cli_mock_benchmark COMMAND marketdata_ingress
     --backend mock --model mock --iterations 16 --warmup 4 --target-us 10000
@@ -157,6 +184,10 @@ if(HAVE_TENSORRT)
   install(TARGETS marketdata_build_engine RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_DOCDIR})
+install(FILES tools/lake/prepare.py tools/lake/binance_aggtrades.py
+  tools/lake/replay_public_history.py tools/lake/compare_tensorrt_history.py
+  tools/lake/requirements.txt
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/lake)
 install(DIRECTORY docs/ DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(DIRECTORY tools/visualization/
   DESTINATION ${CMAKE_INSTALL_DATADIR}/marketdata-ingress/dashboard
@@ -172,7 +203,7 @@ set(CPACK_PACKAGE_FILE_NAME
 )
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 add_executable(marketdata_metrics_compare tools/metrics_compare.cpp)
-target_compile_features(marketdata_metrics_compare PRIVATE cxx_std_17)
+target_compile_features(marketdata_metrics_compare PRIVATE cxx_std_23)
 
 if(MSVC)
   target_compile_options(marketdata_metrics_compare PRIVATE /W4)
@@ -197,7 +228,7 @@ add_test(
 )
 
 add_executable(marketdata_metrics_exporter tools/metrics_exporter.cpp)
-target_compile_features(marketdata_metrics_exporter PRIVATE cxx_std_17)
+target_compile_features(marketdata_metrics_exporter PRIVATE cxx_std_23)
 
 if(MSVC)
   target_compile_options(marketdata_metrics_exporter PRIVATE /W4)

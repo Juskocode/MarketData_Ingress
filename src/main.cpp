@@ -1,6 +1,7 @@
 #include "marketdata_infer/engine.h"
 
 #include <cmath>
+#include <charconv>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -23,6 +24,8 @@ void print_help(const char* exe) {
             << "  --input-size <N>             Elements per sample (default: 512)\n"
             << "  --iterations <N>             Measured iterations (default: 200)\n"
             << "  --warmup <N>                 Warmup iterations (default: 20)\n"
+            << "  --input-file <path>          Replay a prepared lake FP32 dataset\n"
+            << "  --input-row-offset <N>       First replay row (default: 0)\n"
             << "  --json-out <path>            Write metrics JSON to file\n"
             << "  --target-us <us>             Fail when selected p99 exceeds this value\n"
             << "  --target-scope e2e|device    SLO metric (default: e2e)\n"
@@ -32,13 +35,13 @@ void print_help(const char* exe) {
             << "  --help                       Show this help and exit\n";
 }
 size_t parse_size(const std::string& value, const std::string& flag, bool allow_zero) {
-  size_t consumed = 0;
-  const unsigned long long parsed = std::stoull(value, &consumed);
-  if (consumed != value.size() || (!allow_zero && parsed == 0) ||
-      parsed > std::numeric_limits<size_t>::max()) {
+  size_t parsed = 0;
+  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+  if (error != std::errc{} || end != value.data() + value.size() ||
+      (!allow_zero && parsed == 0)) {
     throw std::runtime_error("Invalid value for " + flag + ": " + value);
   }
-  return static_cast<size_t>(parsed);
+  return parsed;
 }
 
 double parse_target(const std::string& value) {
@@ -98,6 +101,11 @@ int main(int argc, char** argv) {
         options.warmup = parse_size(require_value(arg), arg, true);
       } else if (arg == "--json-out") {
         options.metrics_path = require_value(arg);
+      } else if (arg == "--input-file") {
+        options.input_file = require_value(arg);
+        if (options.input_file.empty()) throw std::runtime_error("--input-file must not be empty");
+      } else if (arg == "--input-row-offset") {
+        options.input_row_offset = parse_size(require_value(arg), arg, true);
       } else if (arg == "--target-us") {
         options.target_latency_us = parse_target(require_value(arg));
       } else if (arg == "--target-scope") {
